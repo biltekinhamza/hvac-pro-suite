@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page-shell admin-shell">
+  <section class="hero admin-hero">
+    <div>
+      <p class="eyebrow">Admin</p>
+      <h1>Teklif Talepleri</h1>
+      <p>Müşteriden gelen taslak teklifleri kontrol edin. Sonraki adımda bu ekrandan Paraşüt'e aktarım yapılacak.</p>
+    </div>
+    <div class="admin-actions">
+      <a class="nav-link" href="/admin/materials">Malzeme fiyatlari</a>
+      <a class="nav-link" href="/">Sipariş ekranı</a>
+    </div>
+  </section>
+
+  <section class="admin-grid">
+    <div class="panel wide-panel">
+      <h2>Teklifler</h2>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>No</th>
+              <th>Müşteri</th>
+              <th>Durum</th>
+              <th>Toplam</th>
+              <th>Tarih</th>
+            </tr>
+          </thead>
+          <tbody id="quotes-body">
+            <tr><td colspan="5">Yükleniyor...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <aside class="panel detail-panel">
+      <h2>Teklif Detayı</h2>
+      <div id="quote-detail" class="muted">Bir teklif seçin.</div>
+    </aside>
+  </section>
+</main>
+<script src="/static/admin_quotes.js"></script>
+{% endblock %}

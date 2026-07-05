@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page-shell admin-shell">
+  <section class="hero admin-hero">
+    <div>
+      <p class="eyebrow">Admin</p>
+      <h1>Malzeme Fiyatlari</h1>
+      <p>Sac, flans, conta, vida ve izolasyon birim maliyetlerini guncelleyin. Yeni teklifler bu fiyatlarla hesaplanir.</p>
+    </div>
+    <div class="admin-actions">
+      <a class="nav-link" href="/admin/quotes">Teklifler</a>
+      <a class="nav-link" href="/">Siparis ekrani</a>
+    </div>
+  </section>
+
+  <section class="panel wide-panel">
+    <div class="panel-head">
+      <div>
+        <h2>Malzemeler</h2>
+        <p class="muted">Fiyatlar maliyet olarak kaydedilir; teklif ekraninda kar orani ayrica uygulanir.</p>
+      </div>
+      <input id="material-search" class="search-input" type="search" placeholder="Malzeme ara">
+    </div>
+    <div id="materials-message"></div>
+    <div class="table-wrap">
+      <table class="data-table editable-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Malzeme</th>
+            <th>Ozellik</th>
+            <th>Birim</th>
+            <th>Birim maliyet</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="materials-body">
+          <tr><td colspan="6">Yukleniyor...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script src="/static/admin_materials.js"></script>
+{% endblock %}
