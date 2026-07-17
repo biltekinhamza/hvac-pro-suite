@@ -30,10 +30,24 @@ class CartItemRequest(BaseModel):
     profit_rate: float = 0
 
 
+class MaterialAvailabilityUpdateRequest(BaseModel):
+    is_available: bool
+
+
 class QuoteCreateRequest(BaseModel):
     customer_name: str = ""
     shipping_amount: float = 0
 
 
+class QuoteMergeRequest(BaseModel):
+    quote_ids: list[int] = Field(min_length=2)
+
+
 class MaterialCostUpdateRequest(BaseModel):
+    average_unit_cost: float = Field(ge=0)
+
+
+class AddMaterialOptionRequest(BaseModel):
+    material_name: str
+    option_name: str
     average_unit_cost: float = Field(ge=0)

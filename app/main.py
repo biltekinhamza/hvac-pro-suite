@@ -16,6 +16,7 @@ from app.whatsapp.webhook import router as whatsapp_router
 async def lifespan(app: FastAPI):
     db.initialize()
     repository.seed_from_desktop_if_empty()
+    repository.seed_round_prices_if_empty()
     yield
 
 

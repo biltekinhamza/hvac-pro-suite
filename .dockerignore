@@ -1,0 +1,8 @@
+__pycache__
+.git
+.gitignore
+README.md
+.env
+.env.example
+data
+whatsapp-router-bot

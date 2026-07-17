@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -37,12 +38,18 @@ class ParasutClient:
             "Accept": "application/vnd.api+json",
         })
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.request(method, f"{self.api_url}{path}", headers=headers, **kwargs)
-            if response.status_code == 401 and self._refresh_token:
-                await self._refresh_access_token()
-                headers["Authorization"] = f"Bearer {self._access_token}"
+            for attempt in range(3):
                 response = await client.request(method, f"{self.api_url}{path}", headers=headers, **kwargs)
-            response.raise_for_status()
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", "5"))
+                    await asyncio.sleep(retry_after)
+                    continue
+                if response.status_code == 401 and self._refresh_token:
+                    await self._refresh_access_token()
+                    headers["Authorization"] = f"Bearer {self._access_token}"
+                    response = await client.request(method, f"{self.api_url}{path}", headers=headers, **kwargs)
+                response.raise_for_status()
+                break
             if response.status_code == 204 or not response.content:
                 return {}
             return response.json()

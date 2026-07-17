@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,6 +10,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 STATIC_DIR = BASE_DIR / "app" / "static"
 TEMPLATE_DIR = BASE_DIR / "app" / "templates"
+
+
+def _static_asset_version() -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in STATIC_DIR.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(STATIC_DIR).as_posix().encode("utf-8"))
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()[:12]
+
+
+ASSET_VERSION = _static_asset_version()
 
 
 class Settings(BaseSettings):

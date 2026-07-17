@@ -4,44 +4,110 @@
   <section class="hero">
     <div>
       <p class="eyebrow">Tavsan Makina</p>
-      <h1>Havalandirma siparis talebi</h1>
-      <p>Parca tipini secin, olculeri girin ve kalemleri sepete ekleyin. Teklifiniz kontrol icin ekibe iletilecek.</p>
+      <h1>Havalandırma Sipariş Talebi</h1>
+      <p>Parça tipini seçin, ölçüleri girin ve kalemleri sepete ekleyin. Teklif isteğiniz ekip tarafından değerlendirilecektir.</p>
       {% if session_token %}<p class="session-note">WhatsApp talebinizle bağlantılı form.</p>{% endif %}
     </div>
   </section>
 
   <section class="layout">
     <div>
-      <h2>Parca Secimi</h2>
-      <div id="parts" class="parts-grid"></div>
+      <h2>Parça Seçimi</h2>
+      <div class="parts-toolbar">
+        <div id="part-tabs"></div>
+        <button id="cart-menu" class="cart-menu" type="button" aria-haspopup="dialog" aria-controls="cart-modal">
+          Sepetim <span id="cart-menu-count" class="cart-menu-count">0</span>
+        </button>
+      </div>
+      <div id="parts"></div>
     </div>
 
-    <aside id="order-panel" class="panel order-panel">
-      <h2 id="selected-title">Parca secin</h2>
-      <form id="part-form" class="form-stack">
-        <div id="dynamic-fields"></div>
-        <label>
-          Sac Kalınlığı (mm)
-          <input id="sac_kalinlik_mm" name="sac_kalinlik_mm" type="number" min="0.1" step="0.01" value="0.60">
-        </label>
-        <label>
-          Adet
-          <input id="quantity" name="quantity" type="number" min="1" value="1">
-        </label>
-        <button type="submit">Sepete Ekle</button>
-      </form>
-      <form id="quote-form" class="form-stack quote-form">
-        <label>
-          Müşteri / Firma Adı
-          <input id="customer_name" name="customer_name" type="text" placeholder="Firma veya ad soyad">
-        </label>
-        <button type="submit">Teklif Talebi Oluştur</button>
-      </form>
-      <div id="cart" class="cart-box">
-        <h3>Sepet</h3>
-        <p class="muted">Henuz kalem yok.</p>
-      </div>
-    </aside>
   </section>
 </main>
+
+<div id="cart-modal" class="modal-overlay cart-modal" role="dialog" aria-modal="true" aria-labelledby="cart-modal-title" aria-hidden="true">
+  <section class="cart-dialog">
+    <header class="cart-dialog-head">
+      <div>
+        <span class="modal-step">SEPETİM</span>
+        <h2 id="cart-modal-title">Sipariş Kalemleri</h2>
+      </div>
+      <button type="button" class="cart-close" aria-label="Sepeti kapat">&times;</button>
+    </header>
+    <div id="cart" class="cart-list"></div>
+    <footer class="cart-dialog-footer">
+      <button id="quote-btn" type="button" class="btn-primary quote-btn" disabled>Teklif Talebi Oluştur</button>
+    </footer>
+  </section>
+</div>
+
+<div id="part-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
+  <div class="modal-box part-modal-box">
+    <button type="button" class="modal-close" aria-label="Kapat">&times;</button>
+    <div class="part-modal-layout">
+      <aside class="modal-preview">
+        <div class="modal-preview-frame">
+          <div id="modal-visual-stage" class="modal-visual-stage">
+            <img id="modal-part-image" class="modal-part-image" src="" alt="" hidden>
+            <svg id="modal-dimension-lines" class="modal-dimension-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div id="modal-dimension-badges" class="modal-dimension-badges"></div>
+            <div id="equal-arms-visual" class="equal-arms-visual" hidden>Sol = Sağ</div>
+          </div>
+          <div id="modal-image-fallback" class="modal-image-fallback" hidden aria-hidden="true">Parça görseli</div>
+        </div>
+        <div class="modal-preview-copy">
+          <span id="modal-part-group" class="modal-part-group">Parça</span>
+          <h2 id="modal-title">Parça Seçin</h2>
+          <p id="modal-preview-help">Ölçüleri girin; seçtiğiniz parça doğrudan sepetinize eklensin.</p>
+        </div>
+      </aside>
+
+      <section class="modal-entry-panel" aria-label="Parça ölçüleri">
+        <div class="modal-form-intro">
+          <span class="modal-step">ÖLÇÜLER</span>
+          <p>Değerleri alan başlıklarında belirtilen birimlerle girin.</p>
+        </div>
+        <form id="part-form" class="form-stack modal-form">
+          <div id="dynamic-fields" class="dynamic-fields"></div>
+          <label id="equal-arms-option" class="equal-arms-option" hidden>
+            <input id="kollar_esit" type="checkbox">
+            <span>
+              <strong>Kollar eşit</strong>
+              <small>Sol kol ölçülerini sağ kola otomatik uygula</small>
+            </span>
+          </label>
+          <div class="modal-options-grid">
+            <label>
+              Sac Kalınlığı (mm)
+              <select id="sac_kalinlik_mm" name="sac_kalinlik_mm">
+                <option value="0.50">0.50 mm</option>
+                <option value="0.60" selected>0.60 mm</option>
+                <option value="0.65">0.65 mm</option>
+                <option value="0.70">0.70 mm</option>
+                <option value="0.80">0.80 mm</option>
+              </select>
+            </label>
+            <label>
+              İzolasyon
+              <select id="izolasyon_ozellik_id" name="izolasyon_ozellik_id">
+                <option value="">İzolasyon yok</option>
+              </select>
+            </label>
+            <label id="quantity-option">
+              Adet
+              <input id="quantity" name="quantity" type="number" min="1" value="1" inputmode="numeric">
+            </label>
+            <label class="boya-label modal-boya-label">
+              <input id="boya_ekle" name="boya_ekle" type="checkbox">
+              <span>Boya Ekle</span>
+            </label>
+          </div>
+          <button type="submit" class="modal-submit">Sepete Ekle</button>
+        </form>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
 {% endblock %}

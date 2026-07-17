@@ -9,17 +9,29 @@
     </div>
     <div class="admin-actions">
       <a class="nav-link" href="/admin/materials">Malzeme fiyatlari</a>
+      <a class="nav-link" href="/admin/round-prices">Yuvarlak fiyatlar</a>
+      <a class="nav-link" href="/admin/carts">Bekleyen sepetler</a>
       <a class="nav-link" href="/">Sipariş ekranı</a>
     </div>
   </section>
 
-  <section class="admin-grid">
-    <div class="panel wide-panel">
-      <h2>Teklifler</h2>
+  <section class="admin-quotes-layout">
+    <div class="panel wide-panel quotes-panel-full">
+      <div class="panel-head">
+        <div>
+          <h2>Teklifler</h2>
+          <p class="muted">Birleştirmek istediğiniz teklifleri seçin.</p>
+        </div>
+        <div class="quote-list-actions">
+          <button id="merge-quotes" type="button" class="quote-add-button">Seçilenleri Birleştir</button>
+          <button id="delete-quotes" type="button" class="quote-delete-button">Teklif Sil</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead>
             <tr>
+              <th></th>
               <th>No</th>
               <th>Müşteri</th>
               <th>Durum</th>
@@ -28,17 +40,23 @@
             </tr>
           </thead>
           <tbody id="quotes-body">
-            <tr><td colspan="5">Yükleniyor...</td></tr>
+            <tr><td colspan="6">Yükleniyor...</td></tr>
           </tbody>
         </table>
       </div>
     </div>
-
-    <aside class="panel detail-panel">
-      <h2>Teklif Detayı</h2>
-      <div id="quote-detail" class="muted">Bir teklif seçin.</div>
-    </aside>
   </section>
 </main>
-<script src="/static/admin_quotes.js"></script>
+
+<div id="quote-detail-modal" class="quote-detail-modal" hidden>
+  <div class="quote-detail-backdrop" data-close="1"></div>
+  <section class="quote-detail-window" role="dialog" aria-modal="true" aria-labelledby="quote-detail-title">
+    <div class="quote-detail-modal-head">
+      <h2 id="quote-detail-title">Teklif Detayı</h2>
+      <button id="quote-detail-close" type="button" aria-label="Kapat">&times;</button>
+    </div>
+    <div id="quote-detail" class="quote-detail-modal-body muted">Bir teklif seçin.</div>
+  </section>
+</div>
+<script src="/static/admin_quotes.js?v={{ asset_version }}"></script>
 {% endblock %}

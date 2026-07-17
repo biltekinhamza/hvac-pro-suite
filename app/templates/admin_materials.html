@@ -8,9 +8,36 @@
       <p>Sac, flans, conta, vida ve izolasyon birim maliyetlerini guncelleyin. Yeni teklifler bu fiyatlarla hesaplanir.</p>
     </div>
     <div class="admin-actions">
+      <a class="nav-link" href="/admin/round-prices">Yuvarlak fiyatlar</a>
       <a class="nav-link" href="/admin/quotes">Teklifler</a>
+      <a class="nav-link" href="/admin/carts">Bekleyen sepetler</a>
       <a class="nav-link" href="/">Siparis ekrani</a>
     </div>
+  </section>
+
+  <section class="panel wide-panel">
+    <div class="panel-head">
+      <div>
+        <h2>Malzeme Ekle</h2>
+        <p class="muted">Yeni bir malzeme veya mevcut malzemeye yeni bir secenek ekleyin.</p>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;max-width:700px">
+      <label style="flex:1;min-width:140px">
+        Malzeme Adi
+        <input id="add-material-name" type="text" placeholder="ORN: SAC">
+      </label>
+      <label style="flex:1;min-width:140px">
+        Secenek
+        <input id="add-option-name" type="text" placeholder="ORN: 0.80 mm">
+      </label>
+      <label style="flex:1;min-width:100px">
+        Birim Maliyet (TL)
+        <input id="add-unit-cost" type="number" min="0" step="0.01">
+      </label>
+      <button id="btn-add-material" type="button" style="height:40px">Ekle</button>
+    </div>
+    <div id="add-message"></div>
   </section>
 
   <section class="panel wide-panel">
@@ -30,16 +57,18 @@
             <th>Malzeme</th>
             <th>Ozellik</th>
             <th>Birim</th>
+            <th>Stokta var</th>
             <th>Birim maliyet</th>
+            <th></th>
             <th></th>
           </tr>
         </thead>
         <tbody id="materials-body">
-          <tr><td colspan="6">Yukleniyor...</td></tr>
+          <tr><td colspan="8">Yukleniyor...</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 </main>
-<script src="/static/admin_materials.js"></script>
+<script src="/static/admin_materials.js?v={{ asset_version }}"></script>
 {% endblock %}

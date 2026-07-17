@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or "Havalandirma Siparis" }}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}">
 </head>
 <body>
   {% block content %}{% endblock %}
-  <script src="/static/app.js"></script>
+  <script>window.APP_ASSET_VERSION = {{ asset_version|tojson }};</script>
+  <script src="/static/app.js?v={{ asset_version }}"></script>
 </body>
 </html>

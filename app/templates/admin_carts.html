@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page-shell admin-shell">
+  <section class="hero admin-hero">
+    <div>
+      <p class="eyebrow">Admin</p>
+      <h1>Bekleyen Sepetler</h1>
+      <p>Henüz teklif talebine dönüşmemiş, aktif sipariş sepetlerini inceleyin.</p>
+    </div>
+    <div class="admin-actions">
+      <a class="nav-link" href="/admin/quotes">Teklifler</a>
+      <a class="nav-link" href="/admin/materials">Malzemeler</a>
+      <a class="nav-link" href="/">Sipariş ekranı</a>
+    </div>
+  </section>
+  <section class="panel wide-panel">
+    <div class="panel-head">
+      <div>
+        <h2>Aktif Siparişler</h2>
+        <p class="muted">Boş sepetler burada gösterilmez.</p>
+      </div>
+      <button id="refresh-carts" type="button">Yenile</button>
+    </div>
+    <div id="pending-carts" class="pending-carts"><p class="muted">Yükleniyor...</p></div>
+  </section>
+</main>
+<script src="/static/admin_carts.js?v={{ asset_version }}"></script>
+{% endblock %}

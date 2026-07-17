@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 import re
 import unicodedata
 from typing import Any
+
+import logging
 
 from app.accounting.parasut_client import ParasutClient, parasut_client
 from app.config import settings
@@ -11,10 +14,14 @@ from app.ventilation.part_config import PARTS
 from app.ventilation.part_description import part_measure_text
 
 
+logger = logging.getLogger(__name__)
+
+
 PART_PRODUCT_CODES = {
     "dikdortgen_kanal": "DIKDORTGEN_KANAL",
     "kare_dirsek": "KARE_DIRSEK",
     "kare_reduksiyon": "KARE_REDUKSIYON",
+    "kare_saplama": "KARE_SAPLAMA",
     "kare_es_1": "KARE_ES_1",
     "kare_es_2": "KARE_ES_2",
     "kare_pantolon": "KARE_PANTOLON",
@@ -30,7 +37,13 @@ PART_PRODUCT_CODES = {
     "yuvarlak_mason": "YUVARLAK_MANSON",
     "yuvarlak_reduksiyon": "YUVARLAK_REDUKSIYON",
     "yuvarlak_te": "YUVARLAK_TE",
+    "yuvarlak_kelepce": "YUVARLAK_KELEPCE",
+    "yuvarlak_klape": "YUVARLAK_KLAPE",
+    "yuvarlak_jetkap": "YUVARLAK_JETKAP",
+    "yuvarlak_saplama": "YUVARLAK_SAPLAMA",
+    "yuvarlak_sapka": "YUVARLAK_SAPKA",
 }
+SHIPPING_PRODUCT_CODE = "NAKLIYE"
 
 
 class ParasutService:
@@ -39,10 +52,12 @@ class ParasutService:
 
     async def create_offer_from_quote(self, quote: dict[str, Any], items: list[dict[str, Any]]) -> str:
         contact_id = await self._find_or_create_contact(quote["customer_name"])
+        logger.info("contact_id=%s", contact_id)
+
         details = []
         for item in items:
             product_id = await self._find_or_create_part_product(item["part_code"])
-            description = part_measure_text(item["part_code"], item.get("inputs", {}))
+            description = item.get("parasut_description") or part_measure_text(item["part_code"], item.get("inputs", {}))
             details.append({
                 "type": "sales_offer_details",
                 "attributes": {
@@ -52,9 +67,23 @@ class ParasutService:
                     "vat_rate": settings.default_vat_rate,
                 },
                 "relationships": {
-                    "product": {
-                        "data": {"id": str(product_id), "type": "products"}
-                    }
+                    "product": {"data": {"id": str(product_id), "type": "products"}},
+                },
+            })
+
+        shipping_amount = float(quote.get("shipping_amount") or 0)
+        if shipping_amount > 0:
+            shipping_product_id = await self._find_or_create_product(SHIPPING_PRODUCT_CODE, "Nakliye")
+            details.append({
+                "type": "sales_offer_details",
+                "attributes": {
+                    "description": "Nakliye",
+                    "quantity": 1,
+                    "unit_price": shipping_amount,
+                    "vat_rate": settings.default_vat_rate,
+                },
+                "relationships": {
+                    "product": {"data": {"id": str(shipping_product_id), "type": "products"}},
                 },
             })
 
@@ -69,7 +98,7 @@ class ParasutService:
                     "due_date": due.isoformat(),
                     "currency": settings.default_currency,
                     "description": f"Web teklif talebi #{quote['id']}",
-                    "content": "Teklif geçerlilik süresi ve ödeme şartları için firma ile iletişime geçiniz.",
+                    "content": "PEŞİN ÖDEME FİYATIMIZDIR.\nK.KARTI İLE ÖDEME DE %3 KOMİSYON MEVCUTTUR.\nISPARTA FABRİKA TESLİM.",
                     "order_no": f"WEB-{quote['id']}",
                     "order_date": today.isoformat(),
                 },
@@ -79,8 +108,12 @@ class ParasutService:
                 },
             }
         }
+        logger.info("Paraşüt POST /sales_offers payload: %s", payload)
         response = await self.client.request("POST", "/sales_offers", json=payload)
-        return str(response["data"]["id"])
+        logger.info("Paraşüt response: %s", response)
+        offer_id = str(response["data"]["id"])
+        logger.info("Paraşüt teklif oluşturuldu: id=%s, quote=%s, kalem=%s", offer_id, quote["id"], len(details))
+        return offer_id
 
     async def find_contact_by_id(self, contact_id: str) -> dict[str, Any] | None:
         try:
@@ -90,7 +123,7 @@ class ParasutService:
         data = response.get("data")
         return self._contact_payload(data) if data else None
 
-    async def find_contact_by_phone(self, phone: str, max_pages: int = 8) -> dict[str, Any] | None:
+    async def find_contact_by_phone(self, phone: str, max_pages: int = 2) -> dict[str, Any] | None:
         target = _digits(phone)
         if not target:
             return None
@@ -110,6 +143,7 @@ class ParasutService:
             total = int(meta.get("total_pages", page) or page)
             if current >= total:
                 break
+            await asyncio.sleep(1)
         return None
 
     async def find_contact_by_tax_and_title(self, tax_id: str, title: str) -> dict[str, Any] | None:
@@ -178,17 +212,19 @@ class ParasutService:
 
     async def _find_or_create_part_product(self, part_code: str) -> str:
         product_code = PART_PRODUCT_CODES[part_code]
+        return await self._find_or_create_product(product_code, PARTS[part_code]["title"])
+
+    async def _find_or_create_product(self, product_code: str, product_name: str) -> str:
         response = await self.client.request("GET", "/products", params={"filter[code]": product_code, "page[size]": 1})
         data = response.get("data", [])
         if data:
             return str(data[0]["id"])
 
-        part = PARTS[part_code]
         payload = {
             "data": {
                 "type": "products",
                 "attributes": {
-                    "name": part["title"],
+                    "name": product_name,
                     "code": product_code,
                     "vat_rate": settings.default_vat_rate,
                     "unit": "Adet",

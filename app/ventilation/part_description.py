@@ -38,6 +38,16 @@ def part_measure_text(part_code: str, inputs: dict[str, Any]) -> str:
     if part_code == "kare_reduksiyon":
         big = _rect(inputs, "ust_en", "ust_boy"); small = _rect(inputs, "alt_en", "alt_boy")
         return " ".join(x for x in [f"{big}->{small}" if big and small else None, f"H:{_val(inputs, 'yukseklik')}cm" if _val(inputs, "yukseklik") else None] if x)
+    if part_code == "kare_saplama":
+        return _rect(inputs, "agiz_en", "agiz_boy") or ""
+    if part_code == "kutu":
+        en = _val(inputs, "en")
+        boy = _val(inputs, "boy")
+        yukseklik = _val(inputs, "yukseklik")
+        olcu = f"{en}x{boy}x{yukseklik}cm" if en and boy and yukseklik else None
+        return " ".join(x for x in [olcu, _cap(inputs)] if x)
+    if part_code == "spiro_boru":
+        return " ".join(x for x in [_cap(inputs), f"L:{_val(inputs, 'uzunluk')}m" if _val(inputs, "uzunluk") else None] if x)
     if "cap" in inputs:
         return " ".join(x for x in [_cap(inputs), f"L:{_val(inputs, 'uzunluk') or _val(inputs, 'boy')}cm" if (_val(inputs, "uzunluk") or _val(inputs, "boy")) else None] if x)
     cfg = PARTS.get(part_code, {})
