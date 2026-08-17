@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 import re
 import unicodedata
 from typing import Any
@@ -44,6 +45,7 @@ PART_PRODUCT_CODES = {
     "yuvarlak_sapka": "YUVARLAK_SAPKA",
 }
 SHIPPING_PRODUCT_CODE = "NAKLIYE"
+PART_PRODUCT_UNITS = {"spiro_boru": "Metre", "dikdortgen_kanal": "Metrekare"}
 
 
 class ParasutService:
@@ -62,8 +64,8 @@ class ParasutService:
                 "type": "sales_offer_details",
                 "attributes": {
                     "description": description or item["part_name"],
-                    "quantity": item["quantity"],
-                    "unit_price": item["unit_price"],
+                    "quantity": _two_decimals(item.get("sales_quantity", item["quantity"])),
+                    "unit_price": _two_decimals(item.get("sales_unit_price", item["unit_price"])),
                     "vat_rate": settings.default_vat_rate,
                 },
                 "relationships": {
@@ -79,7 +81,7 @@ class ParasutService:
                 "attributes": {
                     "description": "Nakliye",
                     "quantity": 1,
-                    "unit_price": shipping_amount,
+                    "unit_price": _two_decimals(shipping_amount),
                     "vat_rate": settings.default_vat_rate,
                 },
                 "relationships": {
@@ -163,6 +165,18 @@ class ParasutService:
                 return self._contact_payload(item)
         return None
 
+    async def search_contacts(self, query: str = "", limit: int = 20) -> list[dict[str, Any]]:
+        params: dict[str, object] = {
+            "filter[account_type]": "customer",
+            "page[number]": 1,
+            "page[size]": max(1, min(limit, 25)),
+        }
+        clean_query = query.strip()
+        if clean_query:
+            params["filter[name]"] = clean_query
+        response = await self.client.request("GET", "/contacts", params=params)
+        return [self._contact_payload(item) for item in response.get("data", [])]
+
     def format_balance_message(self, contact: dict[str, Any]) -> str:
         balance = float(contact.get("trl_balance") or contact.get("balance") or 0)
         if balance > 0:
@@ -212,13 +226,19 @@ class ParasutService:
 
     async def _find_or_create_part_product(self, part_code: str) -> str:
         product_code = PART_PRODUCT_CODES[part_code]
-        return await self._find_or_create_product(product_code, PARTS[part_code]["title"])
+        return await self._find_or_create_product(product_code, PARTS[part_code]["title"], PART_PRODUCT_UNITS.get(part_code, "Adet"))
 
-    async def _find_or_create_product(self, product_code: str, product_name: str) -> str:
+    async def _find_or_create_product(self, product_code: str, product_name: str, unit: str = "Adet") -> str:
         response = await self.client.request("GET", "/products", params={"filter[code]": product_code, "page[size]": 1})
         data = response.get("data", [])
         if data:
-            return str(data[0]["id"])
+            product_id = str(data[0]["id"])
+            current_unit = (data[0].get("attributes") or {}).get("unit")
+            if current_unit and current_unit != unit:
+                await self.client.request("PATCH", f"/products/{product_id}", json={
+                    "data": {"id": product_id, "type": "products", "attributes": {"unit": unit}},
+                })
+            return product_id
 
         payload = {
             "data": {
@@ -227,7 +247,7 @@ class ParasutService:
                     "name": product_name,
                     "code": product_code,
                     "vat_rate": settings.default_vat_rate,
-                    "unit": "Adet",
+                    "unit": unit,
                     "currency": settings.default_currency,
                     "list_price": 0,
                 },
@@ -238,6 +258,10 @@ class ParasutService:
 
 
 parasut_service = ParasutService(parasut_client)
+
+
+def _two_decimals(value: object) -> float:
+    return float(Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def _digits(value: object) -> str:

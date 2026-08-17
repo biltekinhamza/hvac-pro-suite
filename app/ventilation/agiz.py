@@ -29,7 +29,11 @@ def agizlari_getir(parca_kodu: str, post: dict[str, object]) -> list[tuple]:
     elif parca_kodu == "kare_pantolon":
         agizlar.extend([("dikdortgen", post.get("ana_en") or post.get("giris_en"), post.get("kanal_derinligi") or post.get("giris_boy")), ("dikdortgen", post.get("sol_en") or post.get("cikis_en"), post.get("sol_boy") or post.get("cikis_boy")), ("dikdortgen", post.get("sag_en") or post.get("cikis_en"), post.get("sag_boy") or post.get("cikis_boy"))])
     elif parca_kodu == "kare_pantolon_2":
-        agizlar.extend([("dikdortgen", post.get("ana_en"), post.get("ana_boy")), ("dikdortgen", post.get("ana_en"), post.get("ana_boy")), ("dikdortgen", post.get("kol_en"), post.get("kol_boy"))])
+        taban_en = post.get("taban_en") or post.get("ana_en")
+        taban_boy = post.get("taban_boy") or post.get("ana_boy")
+        ana_cikis_en = post.get("ana_cikis_en") or taban_en
+        ana_cikis_boy = post.get("ana_cikis_boy") or taban_boy
+        agizlar.extend([("dikdortgen", taban_en, taban_boy), ("dikdortgen", ana_cikis_en, ana_cikis_boy), ("dikdortgen", post.get("kol_en"), post.get("kol_boy"))])
     elif parca_kodu == "kare_istavroz":
         agizlar.extend([("dikdortgen", post.get("alt_en") or post.get("ana_giris_en"), post.get("alt_boy") or post.get("ana_giris_boy")), ("dikdortgen", post.get("ust_en") or post.get("ana_cikis_en"), post.get("ust_boy") or post.get("ana_cikis_boy")), ("dikdortgen", post.get("sol_en") or post.get("sol_kol_en"), post.get("sol_boy") or post.get("sol_kol_boy")), ("dikdortgen", post.get("sag_en") or post.get("sag_kol_en"), post.get("sag_boy") or post.get("sag_kol_boy"))])
     elif parca_kodu == "kare_reduksiyon":

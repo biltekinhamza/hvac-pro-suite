@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS material_option (
     is_available INTEGER NOT NULL DEFAULT 1 CHECK(is_available IN (0, 1))
 );
 
+CREATE TABLE IF NOT EXISTS app_setting (
+    key TEXT PRIMARY KEY,
+    value NUMERIC NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS customer_session (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_token TEXT NOT NULL UNIQUE,
@@ -43,6 +48,7 @@ CREATE TABLE IF NOT EXISTS cart (
     cart_token TEXT UNIQUE,
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','converted','cancelled')),
     customer_name TEXT,
+    customer_phone TEXT NOT NULL DEFAULT '',
     shipping_amount NUMERIC NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -61,18 +67,12 @@ CREATE TABLE IF NOT EXISTS quote (
     cart_id INTEGER REFERENCES cart(id) ON DELETE SET NULL,
     parasut_offer_id TEXT,
     customer_name TEXT NOT NULL,
+    customer_phone TEXT NOT NULL DEFAULT '',
     profit_rate NUMERIC NOT NULL DEFAULT 0,
     shipping_amount NUMERIC NOT NULL DEFAULT 0,
     total_amount NUMERIC NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','review','sent','approved','rejected','sent_to_parasut','merged')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS round_part_price (
-    part_code TEXT NOT NULL,
-    cap_mm INTEGER NOT NULL,
-    price NUMERIC NOT NULL DEFAULT 0,
-    PRIMARY KEY (part_code, cap_mm)
 );
 
 CREATE TABLE IF NOT EXISTS quote_item (
@@ -89,15 +89,52 @@ CREATE TABLE IF NOT EXISTS quote_item (
     inputs_json TEXT NOT NULL,
     result_json TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS mobile_device (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    device_name TEXT NOT NULL DEFAULT '',
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(tenant_id, device_id)
+);
+
+CREATE TABLE IF NOT EXISTS mobile_draft (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL REFERENCES mobile_device(id) ON DELETE CASCADE,
+    local_id TEXT NOT NULL,
+    cart_id INTEGER NOT NULL REFERENCES cart(id) ON DELETE CASCADE,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(device_id, local_id)
+);
+
+CREATE TABLE IF NOT EXISTS mobile_operation (
+    operation_id TEXT PRIMARY KEY,
+    device_id INTEGER NOT NULL REFERENCES mobile_device(id) ON DELETE CASCADE,
+    request_hash TEXT NOT NULL,
+    operation_type TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 MIGRATIONS_SQL = [
 
+    "ALTER TABLE cart ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE quote ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE quote ADD COLUMN profit_rate NUMERIC NOT NULL DEFAULT 0",
     "ALTER TABLE customer_session ADD COLUMN pending_action TEXT",
     "ALTER TABLE cart ADD COLUMN cart_token TEXT",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_cart_cart_token ON cart(cart_token)",
     "ALTER TABLE material_option ADD COLUMN is_available INTEGER NOT NULL DEFAULT 1 CHECK(is_available IN (0, 1))",
+    "CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value NUMERIC NOT NULL DEFAULT 0)",
+    "INSERT OR IGNORE INTO app_setting(key, value) VALUES('fitting_labor_rate', 0)",
+    "INSERT OR IGNORE INTO app_setting(key, value) VALUES('square_duct_labor_rate', 0)",
+    "INSERT OR IGNORE INTO app_setting(key, value) VALUES('spiro_labor_rate', 0)",
+    "DELETE FROM app_setting WHERE key = 'labor_rate'",
+    "DROP TABLE IF EXISTS round_part_price",
     "INSERT OR IGNORE INTO material(name, unit) SELECT 'BOYA', 'm2' WHERE NOT EXISTS (SELECT 1 FROM material WHERE name = 'BOYA')",
     "INSERT OR IGNORE INTO material_option(material_id, option_name, quantity, average_unit_cost) SELECT id, 'Standart', 1000, 50 FROM material WHERE name = 'BOYA' AND NOT EXISTS (SELECT 1 FROM material_option mo JOIN material m ON m.id = mo.material_id WHERE m.name = 'BOYA')",
     "INSERT INTO material(name, unit) SELECT 'IZOLASYON', 'm2' WHERE NOT EXISTS (SELECT 1 FROM material WHERE name = 'IZOLASYON')",

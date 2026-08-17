@@ -4,71 +4,112 @@
   <section class="hero admin-hero">
     <div>
       <p class="eyebrow">Admin</p>
-      <h1>Malzeme Fiyatlari</h1>
-      <p>Sac, flans, conta, vida ve izolasyon birim maliyetlerini guncelleyin. Yeni teklifler bu fiyatlarla hesaplanir.</p>
+      <h1>Maliyet ve İşçilik Ayarları</h1>
+      <p>Sac, flans, conta, vida ve izolasyon birim maliyetleri ile parça gruplarının işçilik oranlarını yönetin.</p>
     </div>
-    <div class="admin-actions">
-      <a class="nav-link" href="/admin/round-prices">Yuvarlak fiyatlar</a>
+    <nav class="admin-actions" aria-label="Yönetim menüsü">
       <a class="nav-link" href="/admin/quotes">Teklifler</a>
       <a class="nav-link" href="/admin/carts">Bekleyen sepetler</a>
+      <a class="nav-link active" href="/admin/materials">Maliyet ayarları</a>
       <a class="nav-link" href="/">Siparis ekrani</a>
-    </div>
+    </nav>
   </section>
 
-  <section class="panel wide-panel">
-    <div class="panel-head">
-      <div>
-        <h2>Malzeme Ekle</h2>
-        <p class="muted">Yeni bir malzeme veya mevcut malzemeye yeni bir secenek ekleyin.</p>
+  <div class="admin-workspace">
+    <section class="admin-section admin-labor-section">
+      <div class="admin-section-heading">
+        <div>
+          <span class="section-kicker">01 / Maliyet kuralı</span>
+          <h2>İşçilik Oranları</h2>
+        </div>
+        <p>Her oran yalnızca ilgili parça grubunun malzeme maliyetine uygulanır.</p>
       </div>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;max-width:700px">
-      <label style="flex:1;min-width:140px">
-        Malzeme Adi
-        <input id="add-material-name" type="text" placeholder="ORN: SAC">
-      </label>
-      <label style="flex:1;min-width:140px">
-        Secenek
-        <input id="add-option-name" type="text" placeholder="ORN: 0.80 mm">
-      </label>
-      <label style="flex:1;min-width:100px">
-        Birim Maliyet (TL)
-        <input id="add-unit-cost" type="number" min="0" step="0.01">
-      </label>
-      <button id="btn-add-material" type="button" style="height:40px">Ekle</button>
-    </div>
-    <div id="add-message"></div>
-  </section>
+      <div class="labor-rate-grid">
+        <label class="labor-rate-card fitting-rate-card">
+          <span class="labor-rate-card-label">Fitting</span>
+          <strong>Fitting İşçilik Oranı</strong>
+          <small>Dikdörtgen kanal ve spiro boru dışındaki tüm parçalar.</small>
+          <span class="rate-input-wrap"><input id="fitting-labor-rate" type="number" min="0" step="0.01" placeholder="0"><b>%</b></span>
+        </label>
+        <label class="labor-rate-card duct-rate-card">
+          <span class="labor-rate-card-label">Kanal</span>
+          <strong>Kare Kanal İşçilik Oranı</strong>
+          <small>Sadece dikdörtgen kanal maliyetinde kullanılır.</small>
+          <span class="rate-input-wrap"><input id="square-duct-labor-rate" type="number" min="0" step="0.01" placeholder="0"><b>%</b></span>
+        </label>
+        <label class="labor-rate-card spiro-rate-card">
+          <span class="labor-rate-card-label">Spiro</span>
+          <strong>Spiro Boru İşçilik Oranı</strong>
+          <small>Sadece spiro boru maliyetinde kullanılır.</small>
+          <span class="rate-input-wrap"><input id="spiro-labor-rate" type="number" min="0" step="0.01" placeholder="0"><b>%</b></span>
+        </label>
+      </div>
+      <div class="labor-rate-actions">
+        <div id="labor-rates-message" aria-live="polite"></div>
+        <button id="btn-save-labor-rates" type="button" class="admin-primary-action">İşçilik Oranlarını Kaydet</button>
+      </div>
+    </section>
 
-  <section class="panel wide-panel">
-    <div class="panel-head">
-      <div>
-        <h2>Malzemeler</h2>
-        <p class="muted">Fiyatlar maliyet olarak kaydedilir; teklif ekraninda kar orani ayrica uygulanir.</p>
+    <section class="admin-section admin-add-material-section">
+      <div class="admin-section-heading">
+        <div>
+          <span class="section-kicker">02 / Malzeme kartı</span>
+          <h2>Malzeme Ekle</h2>
+        </div>
+        <p>Yeni bir malzeme veya mevcut malzemeye fiyat seçeneği ekleyin.</p>
       </div>
-      <input id="material-search" class="search-input" type="search" placeholder="Malzeme ara">
-    </div>
-    <div id="materials-message"></div>
-    <div class="table-wrap">
-      <table class="data-table editable-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Malzeme</th>
-            <th>Ozellik</th>
-            <th>Birim</th>
-            <th>Stokta var</th>
-            <th>Birim maliyet</th>
-            <th></th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="materials-body">
-          <tr><td colspan="8">Yukleniyor...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+      <div class="material-add-grid">
+        <label>
+          Malzeme adı
+          <input id="add-material-name" type="text" placeholder="Örn: SAC">
+        </label>
+        <label>
+          Seçenek
+          <input id="add-option-name" type="text" placeholder="Örn: 0.80 mm">
+        </label>
+        <label>
+          Birim maliyet (TL)
+          <input id="add-unit-cost" type="number" min="0" step="0.01" placeholder="0,00">
+        </label>
+        <button id="btn-add-material" type="button" class="admin-secondary-action">Malzeme Ekle</button>
+      </div>
+      <div id="add-message" aria-live="polite"></div>
+    </section>
+
+    <section class="admin-section admin-inventory-section">
+      <div class="admin-section-heading inventory-heading">
+        <div>
+          <span class="section-kicker">03 / Envanter</span>
+          <h2>Malzeme ve Fiyatlar</h2>
+        </div>
+        <div class="inventory-tools">
+          <p>Fiyatlar maliyet olarak kaydedilir; kâr oranı teklif aşamasında eklenir.</p>
+          <input id="material-search" class="search-input" type="search" placeholder="Malzeme ara">
+        </div>
+      </div>
+      <div id="materials-message" aria-live="polite"></div>
+      <div class="table-wrap inventory-table-wrap">
+        <table class="data-table editable-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Malzeme</th>
+              <th>Özellik</th>
+              <th>Birim</th>
+              <th>Stokta var</th>
+              <th>Birim maliyet</th>
+              <th></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="materials-body">
+            <tr><td colspan="8">Yükleniyor...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
 </main>
 <script src="/static/admin_materials.js?v={{ asset_version }}"></script>
 {% endblock %}

@@ -104,15 +104,15 @@ PARTS = {
     "kare_pantolon_2": {
         "group": "kare",
         "title": "Kare Pantolon 2 (Tek Kol)",
-        "fields": [("ana_en", "Ana Kanal En (cm)"), ("ana_boy", "Ana Kanal Boy / Derinlik (cm)"), ("ana_yukseklik", "Ana Kanal Yukseklik (cm)"), ("kol_en", "Yan Kol En (cm)"), ("kol_boy", "Yan Kol Boy / Derinlik (cm)"), ("kol_boyu", "Yan Kol Cikis Boyu (cm)"), ("r", "Kol Donus Radyusu (cm)")],
+        "fields": [("taban_en", "Taban Giris En (cm)"), ("taban_boy", "Taban Giris Boy (cm)"), ("ana_cikis_en", "Ust Ana Cikis En (cm)"), ("ana_cikis_boy", "Ust Ana Cikis Boy (cm)"), ("ana_yukseklik", "Ana Govde Yuksekligi (cm)"), ("kol_en", "Yan Kol Cikis En (cm)"), ("kol_boy", "Yan Kol Cikis Boy (cm)")],
         "dimension_markers": [
-            {"field": "ana_en", "symbol": "A", "unit": "cm", "line": [23, 5, 55, 5], "label": [39, 8]},
-            {"field": "ana_boy", "symbol": "B", "unit": "cm", "line": [55, 5, 52, 11], "label": [60, 8]},
+            {"field": "taban_en", "symbol": "A", "unit": "cm", "line": [23, 93, 49, 95], "label": [36, 97]},
+            {"field": "taban_boy", "symbol": "B", "unit": "cm", "line": [49, 95, 60, 87], "label": [57, 94]},
+            {"field": "ana_cikis_en", "symbol": "A1", "unit": "cm", "line": [23, 5, 42, 10], "label": [32, 3]},
+            {"field": "ana_cikis_boy", "symbol": "B1", "unit": "cm", "line": [42, 10, 55, 5], "label": [50, 11]},
             {"field": "ana_yukseklik", "symbol": "H", "unit": "cm", "line": [23, 5, 23, 93], "label": [16, 50]},
             {"field": "kol_en", "symbol": "C", "unit": "cm", "line": [59, 31, 75, 27], "label": [68, 22]},
             {"field": "kol_boy", "symbol": "D", "unit": "cm", "line": [75, 27, 75, 75], "label": [82, 51]},
-            {"field": "kol_boyu", "symbol": "L", "unit": "cm", "line": [50, 55, 75, 55], "label": [63, 62]},
-            {"field": "r", "symbol": "R", "unit": "cm", "line": [35, 52, 51, 30], "label": [40, 38]},
         ],
         "image": "kare/kare_pantolon_2.png",
     },
@@ -169,10 +169,7 @@ PARTS = {
     "yuvarlak_dirsek": {
         "group": "yuvarlak",
         "title": "Yuvarlak Dirsek",
-        "fields": [("cap", "Cap (mm)"), ("aci", "Aci (derece)"), ("r", "Merkez Hat Radyusu R (cm)")],
-        "computed_fields": [
-            {"field": "r", "source": "cap", "factor": 0.15, "decimals": 2},
-        ],
+        "fields": [("cap", "Cap (mm)"), ("aci", "Aci (derece)")],
         "dimension_markers": [
             {"field": "cap", "symbol": "ØD", "unit": "mm", "line": [66, 17, 66, 57], "label": [77, 37]},
             {
@@ -184,7 +181,6 @@ PARTS = {
                 "path": "M 41 57 A 12 12 0 0 0 53 45",
                 "label": [57, 59],
             },
-            {"field": "r", "symbol": "R", "unit": "cm", "line": [42, 39, 58, 55], "label": [50, 34]},
         ],
         "image": "yuvarlak/yuvarlak_dirsek.png",
     },

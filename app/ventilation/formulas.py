@@ -3,11 +3,8 @@ from __future__ import annotations
 import math
 from typing import Callable
 
-from app.ventilation.agiz import agizlari_getir
-
 YOGUNLUK = 7850.0
-KENET_GENISLIK_M = 0.02
-FLANS_PAYI_CM = 3.0
+KENET_GENISLIK_M = 0.03
 
 # JKF galvanizli jetkap kataloğundaki flanşlı ürünler:
 # çap (mm): (referans sac kalınlığı (mm), bitmiş ürün ağırlığı (kg))
@@ -119,7 +116,6 @@ def hesap_genel_offset(
     sargi_kenarlari: list[tuple[int, int]],
     kanal_genisligi_cm: float,
     fire_orani: float = 0.15,
-    flans_alani_cm2: float = 0,
     kenet_alani_cm2: float = 0,
     ek_alani_cm2: float = 0,
     sac_kalinligi_mm: float = 0.80,
@@ -127,7 +123,7 @@ def hesap_genel_offset(
     yanak_alani_cm2 = poligon_alani_cm2(yanak_vertices)
     sargi_boyu_cm = kenar_uzunlugu_cm(yanak_vertices, sargi_kenarlari)
     sargi_alani_cm2 = sargi_boyu_cm * kanal_genisligi_cm
-    net_alan_cm2 = 2 * yanak_alani_cm2 + sargi_alani_cm2 + flans_alani_cm2 + kenet_alani_cm2 + ek_alani_cm2
+    net_alan_cm2 = 2 * yanak_alani_cm2 + sargi_alani_cm2 + kenet_alani_cm2 + ek_alani_cm2
     fireli_alan_cm2 = net_alan_cm2 / (1 - fire_orani)
     fire_alani_cm2 = fireli_alan_cm2 - net_alan_cm2
     alan_m2 = net_alan_cm2 / 10000.0
@@ -139,7 +135,6 @@ def hesap_genel_offset(
         "detay": {
             "yanak_alani_cm2": round(yanak_alani_cm2, 2),
             "sargi_alani_cm2": round(sargi_alani_cm2, 2),
-            "flans_alani_cm2": round(flans_alani_cm2, 2),
             "kenet_alani_cm2": round(kenet_alani_cm2, 2),
             "ek_alani_cm2": round(ek_alani_cm2, 2),
             "fire_alani_cm2": round(fire_alani_cm2, 2),
@@ -156,16 +151,6 @@ def _sonuc(alan_m2: float, thickness_mm: float, fire_orani: float = 0.0, detay: 
     return {"alan_m2": round(alan_m2, 3), "kesilen_m2": round(kesilen_m2, 3), "kg": round(_kg(kesilen_m2, thickness_mm), 2), "detay": detay or {}}
 
 
-def _flans_alani_m2(post, part_code):
-    agizlar = agizlari_getir(part_code, post)
-    toplam = 0.0
-    for a in agizlar:
-        if a[0] == "dikdortgen":
-            cevre_cm = 2 * (float(a[1]) + float(a[2]))
-            toplam += (cevre_cm * FLANS_PAYI_CM) / 10000.0
-    return toplam
-
-
 def hesap_dikdortgen_kanal(post: dict[str, object]) -> dict:
     w = cm_to_m(_f(post, "agiz_en"))
     h = cm_to_m(_f(post, "agiz_boy"))
@@ -174,16 +159,14 @@ def hesap_dikdortgen_kanal(post: dict[str, object]) -> dict:
     alan_m2 = 2 * (w + h) * l
     kenet_m2 = l * KENET_GENISLIK_M
     parca_adedi = math.ceil(l / 1.2)
-    flans_m2 = _flans_alani_m2(post, "dikdortgen_kanal") * parca_adedi
-    kesilen_m2 = (alan_m2 + kenet_m2 + flans_m2) / 0.95
-    return {"alan_m2": round(alan_m2, 3), "kesilen_m2": round(kesilen_m2, 3), "kg": round(_kg(kesilen_m2, t), 2), "detay": {"acilim_m2": round(alan_m2, 3), "kenet_m2": round(kenet_m2, 3), "flans_m2": round(flans_m2, 3), "parca_adedi": parca_adedi}}
+    kesilen_m2 = alan_m2 + kenet_m2
+    return {"alan_m2": round(alan_m2, 3), "kesilen_m2": round(kesilen_m2, 3), "kg": round(_kg(kesilen_m2, t), 2), "detay": {"acilim_m2": round(alan_m2, 3), "kenet_m2": round(kenet_m2, 3), "parca_adedi": parca_adedi}}
 
 
 def hesap_kare_dirsek(post):
     w = cm_to_m(_f(post, "agiz_en")); h = cm_to_m(_f(post, "agiz_boy")); aci = _f(post, "aci"); t = _f(post, "sac_kalinlik_mm")
     R = min(w, h); yay_boyu = (math.pi * R * aci) / 180; cevre = 2 * (w + h); alan_m2 = cevre * yay_boyu
-    flans_m2 = _flans_alani_m2(post, "kare_dirsek")
-    return _sonuc(alan_m2 + flans_m2, t, 0.10, {"yaricap_m": round(R, 3), "yay_boyu_m": round(yay_boyu, 3)})
+    return _sonuc(alan_m2, t, 0.10, {"yaricap_m": round(R, 3), "yay_boyu_m": round(yay_boyu, 3)})
 
 
 def _f_opt(data: dict, key: str, default: float = 0.0) -> float:
@@ -238,8 +221,7 @@ def hesap_kare_es_1(post):
     t = _f(post, "sac_kalinlik_mm")
     vertices = kare_es_1_vertices(H, L, K, n)
     sargi = kare_es_1_sargi_kenarlari(n)
-    flans_cm2 = _flans_alani_m2(post, "kare_es_1") * 10000
-    return hesap_genel_offset(vertices, sargi, W, fire_orani=0.05, flans_alani_cm2=flans_cm2, sac_kalinligi_mm=t)
+    return hesap_genel_offset(vertices, sargi, W, fire_orani=0.05, sac_kalinligi_mm=t)
 
 
 def kare_es_2_vertices(H: float, L: float, K: float, duz_sol: float = 0, duz_sag: float = 0) -> list[tuple[float, float]]:
@@ -277,8 +259,7 @@ def hesap_kare_es_2(post):
     duz_sag = _f_opt(post, "duz_sag", 0)
     t = _f(post, "sac_kalinlik_mm")
     vertices = kare_es_2_vertices(H, L, K, duz_sol, duz_sag)
-    flans_cm2 = _flans_alani_m2(post, "kare_es_2") * 10000
-    return hesap_genel_offset(vertices, kare_es_2_sargi_kenarlari, W, fire_orani=0.05, flans_alani_cm2=flans_cm2, sac_kalinligi_mm=t)
+    return hesap_genel_offset(vertices, kare_es_2_sargi_kenarlari, W, fire_orani=0.05, sac_kalinligi_mm=t)
 
 
 def hesap_kare_pantolon(post):
@@ -297,29 +278,38 @@ def hesap_kare_pantolon(post):
     govde_cm2 = 2 * (ana_en + kanal_derinligi) * ana_boy
     sol_cm2 = 2 * (sol_en + sol_boy) * yay_sol
     sag_cm2 = 2 * (sag_en + sag_boy) * yay_sag
-    flans_cm2 = _flans_alani_m2(post, "kare_pantolon") * 10000.0
-    alan_m2 = (govde_cm2 + sol_cm2 + sag_cm2 + flans_cm2) / 10000.0
-    return _sonuc(alan_m2, t, 0.10, {"govde_cm2": round(govde_cm2, 2), "sol_dirsek_cm2": round(sol_cm2, 2), "sag_dirsek_cm2": round(sag_cm2, 2), "flans_cm2": round(flans_cm2, 2)})
+    alan_m2 = (govde_cm2 + sol_cm2 + sag_cm2) / 10000.0
+    return _sonuc(alan_m2, t, 0.10, {"govde_cm2": round(govde_cm2, 2), "sol_dirsek_cm2": round(sol_cm2, 2), "sag_dirsek_cm2": round(sag_cm2, 2)})
 
 
 def hesap_kare_pantolon_2(post):
-    ana_en = _f(post, "ana_en")
-    derinlik = _f(post, "ana_boy")
+    taban_en = _f_opt(post, "taban_en", _f(post, "ana_en") if "ana_en" in post else 0)
+    taban_boy = _f_opt(post, "taban_boy", _f(post, "ana_boy") if "ana_boy" in post else 0)
+    ana_cikis_en = _f_opt(post, "ana_cikis_en", taban_en)
+    ana_cikis_boy = _f_opt(post, "ana_cikis_boy", taban_boy)
     ana_yukseklik = _f(post, "ana_yukseklik")
     kol_en = _f(post, "kol_en")
     kol_boy = _f(post, "kol_boy")
-    kol_boyu = _f(post, "kol_boyu")
-    r = _f(post, "r")
-    if not math.isclose(derinlik, kol_boy, abs_tol=0.01):
-        raise ValueError("Kare Pantolon 2'de ana kanal ve yan kol boylari ayni olmali.")
+    r = min(kol_en, kol_boy)
+    yan_kol_cikis_boyu = 50.0
 
     yay = math.pi * r / 2
-    ana_cm2 = 2 * (ana_en + derinlik) * ana_yukseklik
-    kol_cm2 = 2 * (kol_en + derinlik) * kol_boyu
-    kavis_cm2 = 2 * (kol_en + derinlik) * yay
-    flans_cm2 = (2 * (ana_en + derinlik) + 2 * (ana_en + derinlik) + 2 * (kol_en + derinlik)) * FLANS_PAYI_CM
-    alan_m2 = (ana_cm2 + kol_cm2 + kavis_cm2 + flans_cm2) / 10000.0
-    return _sonuc(alan_m2, _f(post, "sac_kalinlik_mm"), 0.15, {"ana_govde_cm2": round(ana_cm2, 2), "yan_kol_cm2": round(kol_cm2, 2), "kavis_cm2": round(kavis_cm2, 2), "flans_cm2": round(flans_cm2, 2)})
+    ana_on_arka_egik_boy = math.hypot(ana_yukseklik, (taban_boy - ana_cikis_boy) / 2)
+    ana_sol_sag_egik_boy = math.hypot(ana_yukseklik, (taban_en - ana_cikis_en) / 2)
+    ana_cm2 = (taban_en + ana_cikis_en) * ana_on_arka_egik_boy + (taban_boy + ana_cikis_boy) * ana_sol_sag_egik_boy
+    yan_kol_cevresi = 2 * (kol_en + kol_boy)
+    kol_cm2 = yan_kol_cevresi * yan_kol_cikis_boyu
+    kavis_cm2 = yan_kol_cevresi * yay
+    alan_m2 = (ana_cm2 + kol_cm2 + kavis_cm2) / 10000.0
+    return _sonuc(alan_m2, _f(post, "sac_kalinlik_mm"), 0.15, {
+        "ana_govde_cm2": round(ana_cm2, 2),
+        "yan_kol_cm2": round(kol_cm2, 2),
+        "kavis_cm2": round(kavis_cm2, 2),
+        "kol_donus_radyusu_cm": round(r, 2),
+        "yan_kol_cikis_boyu_cm": yan_kol_cikis_boyu,
+        "ana_cikis_en_cm": ana_cikis_en,
+        "ana_cikis_boy_cm": ana_cikis_boy,
+    })
 
 
 def _istavroz_olcu(post: dict, yeni_anahtar: str, eski_anahtar: str) -> float:
@@ -353,14 +343,12 @@ def hesap_kare_istavroz(post):
     sag_yay_boyu = math.pi * sag_en_m / 2
     sol_dirsek_alani = 2 * (sol_en_m + derinlik) * sol_yay_boyu
     sag_dirsek_alani = 2 * (sag_en_m + derinlik) * sag_yay_boyu
-    flans_m2 = _flans_alani_m2(post, "kare_istavroz")
-    alan_m2 = ana_hat_alani + sol_dirsek_alani + sag_dirsek_alani + flans_m2
+    alan_m2 = ana_hat_alani + sol_dirsek_alani + sag_dirsek_alani
     return _sonuc(alan_m2, _f(post, "sac_kalinlik_mm"), 0.15, {
         "kanal_derinligi_m": round(derinlik, 3),
         "ana_hat_alani_m2": round(ana_hat_alani, 3),
         "sol_dirsek_alani_m2": round(sol_dirsek_alani, 3),
         "sag_dirsek_alani_m2": round(sag_dirsek_alani, 3),
-        "flans_m2": round(flans_m2, 3),
     })
 
 
@@ -374,20 +362,18 @@ def hesap_kare_reduksiyon(post):
     on_arka_egik_boy = math.hypot(y, (ust_boy - alt_boy) / 2)
     sol_sag_egik_boy = math.hypot(y, (ust_en - alt_en) / 2)
     alan_m2 = (ust_en + alt_en) * on_arka_egik_boy + (ust_boy + alt_boy) * sol_sag_egik_boy
-    flans_m2 = _flans_alani_m2(post, "kare_reduksiyon")
-    return _sonuc(alan_m2 + flans_m2, t, 0.05, {"on_arka_egik_boy_m": round(on_arka_egik_boy, 3), "sol_sag_egik_boy_m": round(sol_sag_egik_boy, 3)})
+    return _sonuc(alan_m2, t, 0.05, {"on_arka_egik_boy_m": round(on_arka_egik_boy, 3), "sol_sag_egik_boy_m": round(sol_sag_egik_boy, 3)})
 
 
 def hesap_kare_saplama(post):
     cevre = 2 * (cm_to_m(_f(post, "agiz_en")) + cm_to_m(_f(post, "agiz_boy")))
     boy_m = 0.50
     alan_m2 = cevre * boy_m
-    flans_m2 = _flans_alani_m2(post, "kare_saplama")
     return _sonuc(
-        alan_m2 + flans_m2,
+        alan_m2,
         _f(post, "sac_kalinlik_mm"),
         0.05,
-        {"parca_boyu_cm": 50.0, "govde_alani_m2": round(alan_m2, 3), "flans_m2": round(flans_m2, 3)},
+        {"parca_boyu_cm": 50.0, "govde_alani_m2": round(alan_m2, 3)},
     )
 
 
@@ -401,9 +387,8 @@ def hesap_kutu(post):
     kutu_cm2 = 2 * (en * boy) + 2 * (en * yukseklik) + 2 * (boy * yukseklik)
     delik_cm2 = math.pi * (cap / 2) ** 2
     yuvarlak_cm2 = math.pi * cap * boru_boyu
-    flans_cm2 = 0.0
     alan_m2 = (kutu_cm2 - delik_cm2 + yuvarlak_cm2) / 10000.0
-    return _sonuc(alan_m2, t, 0.15, {"kutu_cm2": round(kutu_cm2, 2), "delik_cm2": round(delik_cm2, 2), "yuvarlak_boru_boyu_cm": boru_boyu, "yuvarlak_boru_cm2": round(yuvarlak_cm2, 2), "flans_cm2": round(flans_cm2, 2)})
+    return _sonuc(alan_m2, t, 0.15, {"kutu_cm2": round(kutu_cm2, 2), "delik_cm2": round(delik_cm2, 2), "yuvarlak_boru_boyu_cm": boru_boyu, "yuvarlak_boru_cm2": round(yuvarlak_cm2, 2)})
 
 
 def hesap_kare_kapak(post):
@@ -427,9 +412,8 @@ def hesap_yuvarlak_istavroz(post):
     sol_cm2 = math.pi * sol_cap * sol_boy
     sag_cm2 = math.pi * sag_cap * sag_boy
     delik_cm2 = math.pi * (sol_cap / 2) ** 2 + math.pi * (sag_cap / 2) ** 2
-    agiz_payi_cm2 = (math.pi * ana_cap * FLANS_PAYI_CM * 2) + (math.pi * sol_cap * FLANS_PAYI_CM) + (math.pi * sag_cap * FLANS_PAYI_CM)
-    alan_m2 = (ana_cm2 + sol_cm2 + sag_cm2 - delik_cm2 + agiz_payi_cm2) / 10000.0
-    return _sonuc(alan_m2, t, 0.10, {"ana_cm2": round(ana_cm2, 2), "sol_cm2": round(sol_cm2, 2), "sag_cm2": round(sag_cm2, 2), "delik_cm2": round(delik_cm2, 2), "agiz_payi_cm2": round(agiz_payi_cm2, 2)})
+    alan_m2 = (ana_cm2 + sol_cm2 + sag_cm2 - delik_cm2) / 10000.0
+    return _sonuc(alan_m2, t, 0.10, {"ana_cm2": round(ana_cm2, 2), "sol_cm2": round(sol_cm2, 2), "sag_cm2": round(sag_cm2, 2), "delik_cm2": round(delik_cm2, 2)})
 
 
 def hesap_yuvarlak_mason(post):
@@ -480,9 +464,8 @@ def hesap_yuvarlak_te(post: dict[str, object]) -> dict:
     ana_cm2 = math.pi * D_ana * L_ana
     kol_cm2 = math.pi * D_kol * L_kol
     delik_cm2 = math.pi * (D_kol / 2) ** 2
-    agiz_payi_cm2 = (math.pi * D_ana * FLANS_PAYI_CM * 2) + (math.pi * D_kol * FLANS_PAYI_CM)
-    alan_m2 = (ana_cm2 + kol_cm2 - delik_cm2 + agiz_payi_cm2) / 10000.0
-    return _sonuc(alan_m2, t, 0.10, {"ana_cm2": round(ana_cm2, 2), "kol_cm2": round(kol_cm2, 2), "kol_boyu_cm": round(L_kol, 2), "delik_cm2": round(delik_cm2, 2), "agiz_payi_cm2": round(agiz_payi_cm2, 2)})
+    alan_m2 = (ana_cm2 + kol_cm2 - delik_cm2) / 10000.0
+    return _sonuc(alan_m2, t, 0.10, {"ana_cm2": round(ana_cm2, 2), "kol_cm2": round(kol_cm2, 2), "kol_boyu_cm": round(L_kol, 2), "delik_cm2": round(delik_cm2, 2)})
 
 
 def hesap_kareden_yuvarlaga(post: dict[str, object]) -> dict:
@@ -495,11 +478,8 @@ def hesap_kareden_yuvarlaga(post: dict[str, object]) -> dict:
     yuvarlak_cevre = math.pi * D
     ortalama_cevre = (kare_cevre + yuvarlak_cevre) / 2
     govde_cm2 = ortalama_cevre * H
-    agiz_payi_cm2 = math.pi * D * FLANS_PAYI_CM
-    kare_flans_cm2 = kare_cevre * FLANS_PAYI_CM
-    net_cm2 = govde_cm2 + agiz_payi_cm2 + kare_flans_cm2
-    alan_m2 = net_cm2 / 10000.0
-    return _sonuc(alan_m2, t, 0.10, {"govde_cm2": round(govde_cm2, 2), "agiz_payi_cm2": round(agiz_payi_cm2, 2), "kare_flans_cm2": round(kare_flans_cm2, 2)})
+    alan_m2 = govde_cm2 / 10000.0
+    return _sonuc(alan_m2, t, 0.10, {"govde_cm2": round(govde_cm2, 2)})
 
 
 def _hesap_sabit(post: dict[str, object]) -> dict:

@@ -11,76 +11,29 @@ from app.utils import D, dumps_json, loads_json, q2
 
 
 class Repository:
-    CSV_COLUMN_MAP = {
-        "SPIRO BORU (Metre)": "spiro_boru",
-        "90 DİRSEK": "yuvarlak_dirsek_90",
-        "45 DİRSEK": "yuvarlak_dirsek_45",
-        "T": "yuvarlak_te",
-        "REDÜKSİYON": "yuvarlak_reduksiyon",
-        "MANŞON": "yuvarlak_mason",
-        "KELEPÇE": "yuvarlak_kelepce",
-        "KLAPE": "yuvarlak_klape",
-        "JETKAP": "yuvarlak_jetkap",
-        "KÖRTAPA": "kortapa",
-        "SAPLAMA": "yuvarlak_saplama",
-        "ŞAPKA": "yuvarlak_sapka",
-    }
-
-    def get_round_part_price(self, part_code: str, cap_mm: int) -> float | None:
+    def get_labor_rates(self) -> dict[str, float]:
         with db.connect() as conn:
-            row = conn.execute(
-                "SELECT price FROM round_part_price WHERE part_code = ? AND cap_mm = ?",
-                (part_code, cap_mm),
-            ).fetchone()
-            return float(row["price"]) if row else None
+            rows = conn.execute(
+                "SELECT key, value FROM app_setting WHERE key IN ('fitting_labor_rate', 'square_duct_labor_rate', 'spiro_labor_rate')"
+            ).fetchall()
+        values = {row["key"]: float(row["value"]) for row in rows}
+        return {
+            "fitting": values.get("fitting_labor_rate", 0.0),
+            "square_duct": values.get("square_duct_labor_rate", 0.0),
+            "spiro": values.get("spiro_labor_rate", 0.0),
+        }
 
-    def update_round_part_price(self, part_code: str, cap_mm: int, price: float) -> None:
+    def update_labor_rates(self, fitting: float, square_duct: float, spiro: float) -> None:
         with db.tx() as conn:
-            conn.execute("UPDATE round_part_price SET price = ? WHERE part_code = ? AND cap_mm = ?", (str(price), part_code, cap_mm))
-
-    def upsert_round_part_price(self, part_code: str, cap_mm: int, price: float) -> None:
-        with db.tx() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO round_part_price(part_code, cap_mm, price) VALUES(?, ?, ?)",
-                (part_code, cap_mm, str(price)),
+            conn.executemany(
+                "INSERT OR REPLACE INTO app_setting(key, value) VALUES(?, ?)",
+                [
+                    ("fitting_labor_rate", str(fitting)),
+                    ("square_duct_labor_rate", str(square_duct)),
+                    ("spiro_labor_rate", str(spiro)),
+                ],
             )
 
-    def load_round_prices_from_csv(self, csv_path: str) -> int:
-        import csv
-        count = 0
-        with db.tx() as conn:
-            conn.execute("DELETE FROM round_part_price")
-            with open(csv_path, encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f, delimiter=";")
-                for row in reader:
-                    try:
-                        cap_mm = int(row["ÇAP"].strip())
-                    except (ValueError, KeyError):
-                        continue
-                    for col, part_code in self.CSV_COLUMN_MAP.items():
-                        raw = row.get(col, "").strip().replace(",", ".")
-                        if not raw:
-                            continue
-                        try:
-                            price = float(raw)
-                        except ValueError:
-                            continue
-                        conn.execute(
-                            "INSERT INTO round_part_price(part_code, cap_mm, price) VALUES(?, ?, ?)",
-                            (part_code, cap_mm, str(price)),
-                        )
-                        count += 1
-            conn.commit()
-        return count
-
-    def seed_round_prices_if_empty(self) -> None:
-        with db.connect() as conn:
-            count = conn.execute("SELECT COUNT(*) AS c FROM round_part_price").fetchone()["c"]
-            if count:
-                return
-        csv_path = str(BASE_DIR / "data" / "yuvarlak_fiyatlari.csv")
-        if Path(csv_path).exists():
-            self.load_round_prices_from_csv(csv_path)
 
     def seed_from_desktop_if_empty(self) -> None:
         source = BASE_DIR.parent / "Havalandirma" / "data" / "havalandirma.sqlite3"
@@ -608,12 +561,45 @@ class Repository:
             conn.execute(f"DELETE FROM quote WHERE id IN ({placeholders})", tuple(quote_ids))
             return len(rows)
 
-    def apply_quote_profit_rate(self, quote_id: int, profit_rate: Any) -> None:
+    def apply_quote_profit_rate(self, quote_id: int, profit_rate: Any, items: list[dict[str, Any]] | None = None) -> None:
         rate = D(profit_rate)
         with db.tx() as conn:
             quote = conn.execute("SELECT id, shipping_amount FROM quote WHERE id = ?", (quote_id,)).fetchone()
             if not quote:
                 raise ValueError("Teklif bulunamadı.")
+            if items is not None:
+                total = D(quote["shipping_amount"])
+                for item in items:
+                    cursor = conn.execute(
+                        """
+                        UPDATE quote_item
+                        SET part_code = ?, part_name = ?, quantity = ?, unit_cost = ?, unit_price = ?, line_total = ?,
+                            cut_area_m2 = ?, weight_kg = ?, inputs_json = ?, result_json = ?
+                        WHERE id = ? AND quote_id = ?
+                        """,
+                        (
+                            item["part_code"],
+                            item["part_name"],
+                            item["quantity"],
+                            str(q2(item["unit_cost"])),
+                            str(q2(item["unit_price"])),
+                            str(q2(item["line_total"])),
+                            str(item["cut_area_m2"]),
+                            str(item["weight_kg"]),
+                            dumps_json(item["inputs"]),
+                            dumps_json(item["result"]),
+                            item["id"],
+                            quote_id,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ValueError("Teklif kalemi bulunamadı.")
+                    total += D(item["line_total"])
+                conn.execute(
+                    "UPDATE quote SET profit_rate = ?, total_amount = ?, parasut_offer_id = NULL, status = 'review' WHERE id = ?",
+                    (str(q2(rate)), str(q2(total)), quote_id),
+                )
+                return
             rows = conn.execute("SELECT id, unit_cost, quantity FROM quote_item WHERE quote_id = ?", (quote_id,)).fetchall()
             total = D(quote["shipping_amount"])
             for row in rows:
@@ -673,6 +659,7 @@ class Repository:
         return {
             "id": quote["id"],
             "customer_name": quote["customer_name"],
+            "customer_phone": quote["customer_phone"],
             "profit_rate": float(quote["profit_rate"] or 0),
             "shipping_amount": float(quote["shipping_amount"] or 0),
             "total_amount": float(quote["total_amount"] or 0),

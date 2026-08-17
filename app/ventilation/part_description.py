@@ -48,6 +48,8 @@ def part_measure_text(part_code: str, inputs: dict[str, Any]) -> str:
         return " ".join(x for x in [olcu, _cap(inputs)] if x)
     if part_code == "spiro_boru":
         return " ".join(x for x in [_cap(inputs), f"L:{_val(inputs, 'uzunluk')}m" if _val(inputs, "uzunluk") else None] if x)
+    if part_code == "yuvarlak_dirsek":
+        return " ".join(x for x in [_cap(inputs), f"{_val(inputs, 'aci')}°" if _val(inputs, "aci") else None] if x)
     if "cap" in inputs:
         return " ".join(x for x in [_cap(inputs), f"L:{_val(inputs, 'uzunluk') or _val(inputs, 'boy')}cm" if (_val(inputs, "uzunluk") or _val(inputs, "boy")) else None] if x)
     cfg = PARTS.get(part_code, {})

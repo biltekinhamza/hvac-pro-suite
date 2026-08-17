@@ -51,6 +51,22 @@ function showToast(message, kind = 'info') {
   setTimeout(() => { el.hidden = true; }, 3000);
 }
 
+async function responseError(response, fallback) {
+  try {
+    const data = await response.json();
+    return data.detail || data.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function updateConnectionStatus() {
+  const status = document.querySelector('#connection-status');
+  if (!status) return;
+  status.textContent = navigator.onLine ? '' : 'Çevrimdışısınız. Web siparişleri bağlantı gelince devam eder.';
+  status.classList.toggle('offline', !navigator.onLine);
+}
+
 async function loadParts() {
   const response = await fetch('/api/parts');
   const data = await response.json();
@@ -141,6 +157,20 @@ function updateComputedFields(sourceFieldName = null) {
     }
     updateDimensionBadge(definition.field);
   }
+}
+
+function updateAutomaticRoundSheetThickness() {
+  if (state.selected?.group !== 'yuvarlak') return;
+  const form = document.querySelector('#part-form');
+  const diameters = (state.selected.fields || [])
+    .filter(field => field.name.includes('cap'))
+    .map(field => Number.parseFloat(form.elements.namedItem(field.name)?.value))
+    .filter(value => Number.isFinite(value) && value > 0);
+  if (!diameters.length) return;
+  const diameter = Math.max(...diameters);
+  const thickness = diameter < 250 ? '0.50' : diameter < 600 ? '0.60' : '0.80';
+  const select = document.querySelector('#sac_kalinlik_mm');
+  if (select && Array.from(select.options).some(option => option.value === thickness)) select.value = thickness;
 }
 
 function activateDimensionField(fieldName) {
@@ -302,7 +332,7 @@ function openModal(part) {
   document.querySelector('#dynamic-fields').querySelectorAll('input').forEach((el) => { el.value = ''; });
   updateComputedFields();
   document.querySelector('#quantity').value = 1;
-  document.querySelector('#quantity-option').hidden = part.code === 'spiro_boru';
+  document.querySelector('#quantity-option').hidden = false;
   document.querySelector('#boya_ekle').checked = false;
   document.querySelector('#boya_ekle').value = 'on';
   document.querySelector('#izolasyon_ozellik_id').value = '';
@@ -344,11 +374,15 @@ function closeCart() {
 }
 
 function updateCartMenu() {
-  const count = (state.cart.items || []).reduce((total, item) => total + Number(item.quantity || 0), 0);
+  const count = (state.cart.items || []).length;
   const badge = document.querySelector('#cart-menu-count');
   const menu = document.querySelector('#cart-menu');
   if (badge) badge.textContent = count;
   if (menu) menu.setAttribute('aria-label', `Sepetim, ${count} ürün`);
+  const mobileCount = document.querySelector('#mobile-cart-count');
+  const mobileButton = document.querySelector('#mobile-cart-button');
+  if (mobileCount) mobileCount.textContent = count;
+  if (mobileButton) mobileButton.setAttribute('aria-label', `Sepeti aç, ${count} kalem`);
 }
 
 function renderCart() {
@@ -364,11 +398,11 @@ function renderCart() {
     const partOrder = customerText(a.part_name).localeCompare(customerText(b.part_name), 'tr', { sensitivity: 'base' });
     return partOrder || customerText(a.display).localeCompare(customerText(b.display), 'tr', { numeric: true, sensitivity: 'base' });
   }).map((item, index) => {
+    const hasSalesUnit = ['spiro_boru', 'dikdortgen_kanal'].includes(item.part_code);
     const isSpiro = item.part_code === 'spiro_boru';
-    const totalMetres = Number(item.inputs?.uzunluk || 0) * Number(item.quantity || 0);
     const measure = isSpiro ? customerText(item.display).replace(/\s*L:[^\s]+m/, '') : customerText(item.display);
-    const quantityControl = isSpiro
-      ? `<span class="cart-quantity-label">Metre</span><input class="cart-metre-input" type="number" min="0.01" step="0.01" value="${totalMetres}"><button class="cart-update" type="button">Güncelle</button>`
+    const quantityControl = hasSalesUnit
+      ? `<span class="cart-quantity-label">${item.sales_quantity_text} ${item.sales_unit_label}</span>`
       : `<span class="cart-quantity-label">Adet</span><input class="cart-qty" type="number" min="1" value="${item.quantity}"><button class="cart-update" type="button">Güncelle</button>`;
     return `
       <div class="cart-item" data-id="${item.id}">
@@ -399,14 +433,11 @@ function attachCartEvents() {
       const row = btn.closest('.cart-item');
       const id = Number(row.dataset.id);
       const item = state.cart.items.find(cartItem => Number(cartItem.id) === id);
-      const metreInput = row.querySelector('.cart-metre-input');
-      const isSpiro = item?.part_code === 'spiro_boru';
-      const qty = isSpiro ? 1 : Number(row.querySelector('.cart-qty').value);
-      const inputs = isSpiro ? { ...item.inputs, uzunluk: metreInput.value } : {};
+      const qty = Number(row.querySelector('.cart-qty').value);
       const res = await fetch('/api/cart/items/' + id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ part_code: isSpiro ? 'spiro_boru' : '', inputs, quantity: qty, profit_rate: 0 }),
+        body: JSON.stringify({ part_code: '', inputs: {}, quantity: qty, profit_rate: 0 }),
       });
       if (res.ok) {
         state.cart = (await res.json()).cart;
@@ -447,7 +478,7 @@ document.querySelector('#part-form')?.addEventListener('submit', async (event) =
     body: JSON.stringify({ part_code: state.selected.code, inputs: entries, quantity, profit_rate: 0 }),
   });
   if (!response.ok) {
-    showToast('Kalem eklenemedi. Lütfen ölçüleri kontrol edin.', 'error');
+    showToast(await responseError(response, 'Kalem eklenemedi. Lütfen ölçüleri kontrol edin.'), 'error');
     return;
   }
   const data = await response.json();
@@ -457,19 +488,36 @@ document.querySelector('#part-form')?.addEventListener('submit', async (event) =
   showToast('Parça sepete eklendi.', 'success');
 });
 
-document.querySelector('#quote-btn')?.addEventListener('click', async () => {
-  const name = prompt('Müşteri / Firma Adı:') || '';
-  if (!name.trim()) {
-    showToast('Lütfen bir isim girin.', 'error');
-    return;
-  }
+function openCustomerModal() {
+  const modal = document.querySelector('#customer-modal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  requestAnimationFrame(() => document.querySelector('#customer-name')?.focus());
+}
+
+function closeCustomerModal() {
+  const modal = document.querySelector('#customer-modal');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+  document.querySelector('#quote-btn')?.focus();
+}
+
+document.querySelector('#quote-btn')?.addEventListener('click', openCustomerModal);
+document.querySelector('#customer-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = document.querySelector('#customer-name').value.trim();
+  const submit = event.currentTarget.querySelector('button[type="submit"]');
+  submit.disabled = true;
   const response = await fetch('/api/quotes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ customer_name: name, shipping_amount: 0 }),
   });
   if (!response.ok) {
-    showToast('Teklif talebi oluşturulamadı. Sepet boş olabilir.', 'error');
+    showToast(await responseError(response, 'Teklif talebi oluşturulamadı. Sepet boş olabilir.'), 'error');
+    submit.disabled = false;
     return;
   }
   const data = await response.json();
@@ -477,12 +525,18 @@ document.querySelector('#quote-btn')?.addEventListener('click', async () => {
   document.querySelector('#quote-btn').disabled = true;
   state.cart = { items: [], total: 0 };
   updateCartMenu();
+  closeCustomerModal();
+  closeCart();
+  event.currentTarget.reset();
+  submit.disabled = false;
   showToast(`Teklif talebiniz oluşturuldu. Teklif No: #${data.quote_id}`, 'success');
 });
 
 document.querySelector('.modal-close')?.addEventListener('click', closeModal);
 document.querySelector('#cart-menu')?.addEventListener('click', openCart);
+document.querySelector('#mobile-cart-button')?.addEventListener('click', openCart);
 document.querySelector('.cart-close')?.addEventListener('click', closeCart);
+document.querySelector('.customer-close')?.addEventListener('click', closeCustomerModal);
 document.querySelector('#kollar_esit')?.addEventListener('change', (event) => {
   applyEqualArms(event.currentTarget.checked);
 });
@@ -493,6 +547,7 @@ document.querySelector('#dynamic-fields')?.addEventListener('input', (event) => 
   if (!(event.target instanceof HTMLInputElement)) return;
   updateDimensionBadge(event.target.name);
   updateComputedFields(event.target.name);
+  updateAutomaticRoundSheetThickness();
   if (!document.querySelector('#kollar_esit')?.checked) return;
   const pairs = state.selected?.equal_arm_pairs || [];
   const pair = pairs.find(item => item.source === event.target.name);
@@ -509,11 +564,19 @@ document.querySelector('#part-modal')?.addEventListener('click', (event) => {
 document.querySelector('#cart-modal')?.addEventListener('click', (event) => {
   if (event.target === event.currentTarget) closeCart();
 });
+document.querySelector('#customer-modal')?.addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) closeCustomerModal();
+});
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
-  if (document.querySelector('#cart-modal')?.classList.contains('open')) closeCart();
+  if (document.querySelector('#customer-modal')?.classList.contains('open')) closeCustomerModal();
+  else if (document.querySelector('#cart-modal')?.classList.contains('open')) closeCart();
   else closeModal();
 });
+
+window.addEventListener('online', updateConnectionStatus);
+window.addEventListener('offline', updateConnectionStatus);
+updateConnectionStatus();
 
 async function loadIzolasyonOptions() {
   const sel = document.querySelector('#izolasyon_ozellik_id');

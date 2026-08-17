@@ -30,7 +30,7 @@ function renderQuotes() {
     <tr class="click-row ${quotesState.selectedId === quote.id ? 'selected' : ''}" data-id="${quote.id}">
       <td><input class="quote-merge-check" type="checkbox" data-id="${quote.id}" ${quotesState.selectedMergeIds.has(quote.id) ? 'checked' : ''} ${quote.status === 'merged' ? 'disabled' : ''}></td>
       <td>#${quote.id}</td>
-      <td>${quote.customer_name}</td>
+      <td>${escapeHtml(quote.customer_name)}${quote.customer_phone ? `<br><small>${escapeHtml(quote.customer_phone)}</small>` : ''}</td>
       <td><span class="status-pill">${quote.status}</span></td>
       <td>${formatMoney(quote.total_amount)}<br><small>Kâr: %${quote.profit_rate}</small></td>
       <td>${quote.created_at}</td>
@@ -112,7 +112,7 @@ function partFieldsHtml(part, inputs = {}) {
   `).join('');
 }
 
-function sharedQuoteFieldsHtml(prefix, inputs = {}, quantity = 1) {
+function sharedQuoteFieldsHtml(prefix, partCode, inputs = {}, quantity = 1) {
   const selectedThickness = normalizeOptionNumber(inputs.sac_kalinlik_mm || '0.60');
   return `
     <label>
@@ -129,10 +129,7 @@ function sharedQuoteFieldsHtml(prefix, inputs = {}, quantity = 1) {
       <input name="boya_ekle" type="checkbox" ${inputs.boya_ekle === true || String(inputs.boya_ekle).toLowerCase() === 'true' || String(inputs.boya_ekle).toLowerCase() === 'on' ? 'checked' : ''}>
       <span>Boya Ekle</span>
     </label>
-    <label>
-      Adet
-      <input name="quantity" type="number" min="1" value="${escapeHtml(quantity)}" required>
-    </label>
+    <label>Adet<input name="quantity" type="number" min="1" value="${escapeHtml(quantity)}" required></label>
   `;
 }
 
@@ -145,6 +142,19 @@ function collectFormInputs(form) {
   return { inputs: data, quantity };
 }
 
+function updateAutomaticRoundSheetThickness(form, part) {
+  if (part?.group !== 'yuvarlak') return;
+  const diameters = (part.fields || [])
+    .filter((field) => field.name.includes('cap'))
+    .map((field) => Number.parseFloat(form.elements.namedItem(field.name)?.value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!diameters.length) return;
+  const diameter = Math.max(...diameters);
+  const thickness = diameter < 250 ? '0.50' : diameter < 600 ? '0.60' : '0.80';
+  const select = form.elements.namedItem('sac_kalinlik_mm');
+  if (select instanceof HTMLSelectElement) select.value = thickness;
+}
+
 function renderQuoteDetail(data) {
   const quote = data.quote;
   const summary = data.summary || { total_cut_m2: 0, total_kg: 0 };
@@ -153,7 +163,7 @@ function renderQuoteDetail(data) {
   const items = data.items.map((item) => {
     const detailParts = Array.isArray(item.detail_parts) && item.detail_parts.length
       ? item.detail_parts
-      : [`${item.quantity} adet`, item.display].filter(Boolean);
+      : [`${item.sales_quantity_text} ${item.sales_unit_label}`, item.display].filter(Boolean);
     const detailText = detailParts.map(escapeHtml).join(' · ');
     return `
     <div class="detail-item" data-item-id="${item.id}">
@@ -179,6 +189,7 @@ function renderQuoteDetail(data) {
   document.querySelector('#quote-detail').innerHTML = `
     <div class="detail-head">
       <h3>#${quote.id} ${quote.customer_name}</h3>
+      ${quote.customer_phone ? `<p><strong>Telefon:</strong> <a href="tel:${escapeHtml(quote.customer_phone)}">${escapeHtml(quote.customer_phone)}</a></p>` : ''}
       <p><strong>Durum:</strong> ${quote.status}</p>
       <p><strong>Kâr Oranı:</strong> %${quote.profit_rate}</p>
       <p><strong>Nakliye:</strong> ${formatMoney(quote.shipping_amount)}</p>
@@ -206,18 +217,28 @@ function renderQuoteDetail(data) {
     <button id="open-add-item" type="button" class="quote-add-button">Kalem Ekle</button>
     <div id="quote-item-editor" class="quote-edit-form" hidden></div>
     <div class="detail-list">${items}</div>
-    ${sendButton}
+    <div class="quote-output-actions">
+      <a class="quote-pdf-button" href="/api/admin/quotes/${quote.id}/pdf" download>PDF Oluştur</a>
+      ${sendButton}
+    </div>
   `;
   attachQuoteItemEvents(quote, data.items || []);
   document.querySelector('#profit-form').addEventListener('submit', async (event) => {
     event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    button.textContent = 'Uygulanıyor...';
     const form = new FormData(event.currentTarget);
     const response = await fetch(`/api/admin/quotes/${quote.id}/profit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profit_rate: Number(form.get('profit_rate') || 0) }),
     });
-    if (!response.ok) return alert('Kâr oranı uygulanamadı.');
+    if (!response.ok) {
+      button.disabled = false;
+      button.textContent = 'Kârı Uygula';
+      return alert('Kâr oranı uygulanamadı.');
+    }
     const updated = await response.json();
     const index = quotesState.quotes.findIndex((item) => item.id === quote.id);
     if (index >= 0) quotesState.quotes[index] = updated.quote;
@@ -278,7 +299,7 @@ function renderQuoteItemEditor(quote, item = null) {
       </label>
       <div id="quote-editor-fields" class="quote-field-grid">
         ${partFieldsHtml(part, item?.inputs || {})}
-        ${sharedQuoteFieldsHtml('editor', item?.inputs || {}, item?.quantity || 1)}
+        ${sharedQuoteFieldsHtml('editor', partCode, item?.inputs || {}, item?.quantity || 1)}
       </div>
       <button type="submit">${item ? 'Kalemi Güncelle' : 'Kalem Ekle'}</button>
     </form>
@@ -286,10 +307,15 @@ function renderQuoteItemEditor(quote, item = null) {
   editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
   editor.querySelector('input, select')?.focus({ preventScroll: true });
   document.querySelector('#close-item-editor')?.addEventListener('click', () => { editor.hidden = true; editor.innerHTML = ''; });
+  document.querySelector('#quote-editor-fields')?.addEventListener('input', () => {
+    const form = document.querySelector('#quote-item-editor-form');
+    const selected = quotesState.parts.find((current) => current.code === form?.elements.namedItem('part_code')?.value);
+    if (form) updateAutomaticRoundSheetThickness(form, selected);
+  });
   document.querySelector('#quote-editor-part')?.addEventListener('change', (event) => {
     const selectedPart = quotesState.parts.find((p) => p.code === event.currentTarget.value);
     const fields = document.querySelector('#quote-editor-fields');
-    if (fields) fields.innerHTML = partFieldsHtml(selectedPart) + sharedQuoteFieldsHtml('editor', {}, 1);
+    if (fields) fields.innerHTML = partFieldsHtml(selectedPart) + sharedQuoteFieldsHtml('editor', selectedPart?.code || '', {}, 1);
   });
   document.querySelector('#quote-item-editor-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();

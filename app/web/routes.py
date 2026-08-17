@@ -1,33 +1,32 @@
 from __future__ import annotations
 
-import logging
 import secrets
-from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
 from app.accounting.parasut_service import parasut_service
-from app.config import ASSET_VERSION, BASE_DIR, TEMPLATE_DIR, settings
+from app.config import ASSET_VERSION, TEMPLATE_DIR, settings
 from app.database import db
-from app.models import AddMaterialOptionRequest, CalculateRequest, CartItemRequest, MaterialAvailabilityUpdateRequest, MaterialCostUpdateRequest, QuoteCreateRequest, QuoteMergeRequest
+from app.models import AddMaterialOptionRequest, CalculateRequest, CartItemRequest, LaborRatesUpdateRequest, MaterialAvailabilityUpdateRequest, MaterialCostUpdateRequest, QuoteCreateRequest, QuoteMergeRequest
+from app.quote_pdf import build_quote_pdf
 from app.repository import repository
 from app.utils import loads_json
 from app.ventilation.engine import CostEngine
+from app.ventilation.formulas import calculate_geometry
 from app.ventilation.part_config import PARTS
 from app.ventilation.part_description import part_measure_text
+from app.ventilation.sales_units import NO_QUANTITY_PARTS, sales_fields
 from app.ventilation.service import ventilation_service
-from app.whatsapp.client import whatsapp_client
 
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 templates.env.globals["asset_version"] = ASSET_VERSION
 engine = CostEngine(repository)
-logger = logging.getLogger(__name__)
 security = HTTPBasic(auto_error=False)
 
 
@@ -54,18 +53,21 @@ def require_admin(credentials: HTTPBasicCredentials | None = Depends(security)) 
 
 @router.get("/", response_class=HTMLResponse)
 def order_page(request: Request):
-    session_token = request.query_params.get("s", "")
-    previous_session_token = request.cookies.get("order_source_session", "")
     cart_token = request.cookies.get("order_cart_token")
-    if not cart_token or session_token != previous_session_token:
+    if not cart_token:
         cart_token = secrets.token_urlsafe(24)
-    session = repository.get_customer_session_by_token(session_token)
-    repository.get_active_cart(cart_token, int(session["id"]) if session else None)
-    response = templates.TemplateResponse("order.html", {"request": request, "session_token": session_token})
+    repository.get_active_cart(cart_token)
+    response = templates.TemplateResponse("order.html", {"request": request})
     response.set_cookie("order_cart_token", cart_token, httponly=True, samesite="lax")
-    response.set_cookie("order_source_session", session_token, httponly=True, samesite="lax")
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@router.get("/order", include_in_schema=False)
+@router.get("/siparis", include_in_schema=False)
+def order_page_compat_redirect(request: Request) -> RedirectResponse:
+    query = request.url.query
+    return RedirectResponse(url=f"/?{query}" if query else "/", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @router.get("/admin/quotes", response_class=HTMLResponse)
@@ -92,13 +94,7 @@ def open_legacy_cart(cart_id: int, _admin: str = Depends(require_admin)) -> Redi
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie("order_cart_token", cart_token, httponly=True, samesite="lax")
-    response.set_cookie("order_source_session", "", httponly=True, samesite="lax")
     return response
-
-
-@router.get("/admin/round-prices", response_class=HTMLResponse)
-def admin_round_prices_page(request: Request, _admin: str = Depends(require_admin)):
-    return templates.TemplateResponse("admin_round_prices.html", {"request": request})
 
 
 @router.get("/api/parts")
@@ -125,11 +121,10 @@ def list_admin_carts(_admin: str = Depends(require_admin)) -> dict:
         for row in repository.list_cart_items_for_admin(int(cart["id"])):
             inputs = loads_json(row["inputs_json"], {})
             quantity = int(row["quantity"])
-            if row["part_code"] == "spiro_boru":
-                measure = f"{part_measure_text(row['part_code'], inputs)} | Toplam: {float(inputs.get('uzunluk', 0)) * quantity:g} m"
-            else:
-                measure = part_measure_text(row["part_code"], inputs)
-            items.append({"id": row["id"], "part_code": row["part_code"], "part_name": PARTS[row["part_code"]]["title"], "measure": measure, "quantity": quantity, "inputs": inputs})
+            result = calculate_geometry(row["part_code"], inputs)
+            unit_data = sales_fields(row["part_code"], inputs, result, quantity, 0)
+            measure = part_measure_text(row["part_code"], inputs)
+            items.append({"id": row["id"], "part_code": row["part_code"], "part_name": PARTS[row["part_code"]]["title"], "measure": measure, "quantity": quantity, "inputs": inputs, **unit_data})
         carts.append({
             "id": cart["id"],
             "created_at": cart["created_at"],
@@ -139,6 +134,20 @@ def list_admin_carts(_admin: str = Depends(require_admin)) -> dict:
             "items": items,
         })
     return {"items": carts}
+
+
+@router.get("/api/admin/parasut/contacts")
+async def search_admin_parasut_contacts(q: str = "", _admin: str = Depends(require_admin)) -> dict:
+    try:
+        items = await parasut_service.search_contacts(q, limit=20)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:1000] if exc.response is not None else str(exc)
+        raise HTTPException(status_code=502, detail=f"Paraşüt API hatası: {detail}") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Paraşüt bağlantı hatası: {exc}") from exc
+    return {"items": items}
 
 
 @router.put("/api/admin/carts/{cart_id}/items/{item_id}")
@@ -181,13 +190,23 @@ async def create_admin_cart_quote(cart_id: int, payload: QuoteCreateRequest, _ad
         quote_id = repository.create_quote_for_admin(cart_id, payload.customer_name, payload.shipping_amount, prepared)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    await _notify_new_quote(quote_id, payload.customer_name, prepared)
     return {"ok": True, "quote_id": quote_id}
 
 
 @router.get("/api/admin/materials/names")
 def list_material_names(_admin: str = Depends(require_admin)) -> dict:
     return {"items": [{"name": r["name"], "unit": r["unit"]} for r in repository.list_materials()]}
+
+
+@router.get("/api/admin/labor-rates")
+def get_labor_rates(_admin: str = Depends(require_admin)) -> dict:
+    return repository.get_labor_rates()
+
+
+@router.post("/api/admin/labor-rates")
+def update_labor_rates(payload: LaborRatesUpdateRequest, _admin: str = Depends(require_admin)) -> dict:
+    repository.update_labor_rates(payload.fitting, payload.square_duct, payload.spiro)
+    return {"ok": True, **repository.get_labor_rates()}
 
 
 @router.post("/api/admin/materials")
@@ -253,6 +272,16 @@ def get_admin_quote(quote_id: int, _admin: str = Depends(require_admin)) -> dict
     return _admin_quote_payload(quote_id)
 
 
+@router.get("/api/admin/quotes/{quote_id}/pdf")
+def get_admin_quote_pdf(quote_id: int, _admin: str = Depends(require_admin)) -> Response:
+    pdf = build_quote_pdf(_admin_quote_payload(quote_id), settings)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="teklif-{quote_id}.pdf"'},
+    )
+
+
 @router.post("/api/admin/quotes/{quote_id}/items")
 def add_admin_quote_item(quote_id: int, payload: CartItemRequest, _admin: str = Depends(require_admin)) -> dict:
     try:
@@ -288,17 +317,24 @@ def delete_admin_quote_item(quote_id: int, item_id: int, _admin: str = Depends(r
 async def apply_admin_quote_profit(quote_id: int, request: Request, _admin: str = Depends(require_admin)) -> dict:
     payload = await request.json()
     try:
-        repository.apply_quote_profit_rate(quote_id, payload.get("profit_rate", 0))
+        profit_rate = payload.get("profit_rate", 0)
         quote, items = repository.get_quote(quote_id)
+        quote_data = repository.serialize_quote(quote)
+        quote_data["profit_rate"] = profit_rate
+        repriced_items = []
+        for row in items:
+            saved = repository.serialize_quote_item(row)
+            repriced = _prepare_quote_item(
+                quote_data,
+                saved["part_code"],
+                saved["inputs"],
+                saved["quantity"],
+            )
+            repriced_items.append({"id": saved["id"], **repriced})
+        repository.apply_quote_profit_rate(quote_id, profit_rate, repriced_items)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    serialized = _decorate_quote_items([repository.serialize_quote_item(row) for row in items])
-    return {
-        "ok": True,
-        "quote": repository.serialize_quote(quote),
-        "items": serialized,
-        "summary": _quote_summary(serialized),
-    }
+    return {"ok": True, **_admin_quote_payload(quote_id)}
 
 
 @router.post("/api/admin/quotes/{quote_id}/shipping")
@@ -324,7 +360,7 @@ async def send_admin_quote_to_parasut(quote_id: int, _admin: str = Depends(requi
         quote["parasut_offer_id"] = None
         quote["status"] = "review"
 
-    items = _decorate_quote_items([repository.serialize_quote_item(row) for row in item_rows])
+    items = _decorate_quote_items([repository.serialize_quote_item(row) for row in item_rows], quote["profit_rate"])
     if not items:
         raise HTTPException(status_code=400, detail="Teklif kalemi yok.")
 
@@ -342,44 +378,6 @@ async def send_admin_quote_to_parasut(quote_id: int, _admin: str = Depends(requi
 
     repository.mark_quote_sent_to_parasut(quote_id, parasut_offer_id)
     return {"ok": True, "parasut_offer_id": parasut_offer_id, "already_sent": False}
-
-
-def _serialize_round_price(row) -> dict:
-    return {"part_code": row["part_code"], "cap_mm": row["cap_mm"], "price": float(row["price"] or 0)}
-
-
-@router.get("/api/admin/round-prices/template")
-def download_round_prices_template(_admin: str = Depends(require_admin)):
-    from fastapi.responses import FileResponse
-    return FileResponse(str(BASE_DIR / "data" / "yuvarlak_fiyatlari.csv"), media_type="text/csv", filename="yuvarlak_fiyatlari_sablonu.csv")
-
-
-@router.get("/api/admin/round-prices")
-def list_round_prices(_admin: str = Depends(require_admin)) -> dict:
-    with db.connect() as conn:
-        rows = conn.execute("SELECT * FROM round_part_price ORDER BY part_code, cap_mm").fetchall()
-    return {"items": [_serialize_round_price(r) for r in rows]}
-
-
-@router.post("/api/admin/round-prices/upload")
-async def upload_round_prices(file: UploadFile, _admin: str = Depends(require_admin)) -> dict:
-    import tempfile
-    content = await file.read()
-    suffix = Path(file.filename or "prices.csv").suffix
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    try:
-        tmp.write(content)
-        tmp.close()
-        count = repository.load_round_prices_from_csv(tmp.name)
-    finally:
-        Path(tmp.name).unlink(missing_ok=True)
-    return {"ok": True, "count": count}
-
-
-@router.post("/api/admin/round-prices/{part_code}/{cap_mm}")
-def update_round_price(part_code: str, cap_mm: int, payload: MaterialCostUpdateRequest, _admin: str = Depends(require_admin)) -> dict:
-    repository.update_round_part_price(part_code, cap_mm, payload.average_unit_cost)
-    return {"ok": True}
 
 
 @router.get("/api/material-options/{material_name}")
@@ -403,12 +401,9 @@ def calculate(payload: CalculateRequest) -> dict:
 def update_cart_item(item_id: int, payload: CartItemRequest, request: Request) -> dict:
     cart_token = _cart_token(request)
     try:
-        if payload.part_code == "spiro_boru":
-            inputs = _normalize_inputs(payload.inputs, payload.profit_rate)
-            engine.calculate(payload.part_code, inputs)
-            repository.update_cart_item_quantity(cart_token, item_id, 1, inputs)
-        else:
-            repository.update_cart_item_quantity(cart_token, item_id, payload.quantity)
+        if payload.part_code in NO_QUANTITY_PARTS:
+            raise ValueError("Bu parçanın miktarı ölçülerinden hesaplanır.")
+        repository.update_cart_item_quantity(cart_token, item_id, payload.quantity)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True, "cart": _cart_payload(cart_token)}
@@ -429,10 +424,11 @@ def add_cart_item(payload: CartItemRequest, request: Request) -> dict:
     try:
         _ensure_customer_material_stock(inputs)
         result = engine.calculate(payload.part_code, inputs)
-        sale = engine.calculate_sale(result, payload.profit_rate, payload.quantity)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    item_id = repository.add_cart_item(cart_token, payload.part_code, inputs, payload.quantity)
+    quantity = 1 if payload.part_code in NO_QUANTITY_PARTS else payload.quantity
+    sale = engine.calculate_sale(result, payload.profit_rate, quantity)
+    item_id = repository.add_cart_item(cart_token, payload.part_code, inputs, quantity)
     return {"ok": True, "id": item_id, "result": result, "sale": sale, "cart": _cart_payload(cart_token)}
 
 
@@ -471,7 +467,6 @@ async def create_quote(payload: QuoteCreateRequest, request: Request) -> dict:
 
     prepared = _prepare_cart_quote_items(rows)
     quote_id = repository.create_quote(cart_token, payload.customer_name, payload.shipping_amount, prepared)
-    await _notify_new_quote(quote_id, payload.customer_name, prepared)
     return {"ok": True, "quote_id": quote_id}
 
 
@@ -480,9 +475,14 @@ def _admin_quote_payload(quote_id: int) -> dict:
         quote, items = repository.get_quote(quote_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    serialized = _decorate_quote_items([repository.serialize_quote_item(row) for row in items])
+    serialized = _decorate_quote_items([repository.serialize_quote_item(row) for row in items], quote["profit_rate"])
+    quote_data = repository.serialize_quote(quote)
+    quote_data["total_amount"] = round(
+        sum(float(item["line_total"]) for item in serialized) + float(quote_data["shipping_amount"]),
+        2,
+    )
     return {
-        "quote": repository.serialize_quote(quote),
+        "quote": quote_data,
         "items": serialized,
         "summary": _quote_summary(serialized),
     }
@@ -578,7 +578,7 @@ def _normalize_inputs(inputs: dict[str, object], profit_rate: float) -> dict[str
     return data
 
 
-def _decorate_quote_items(items: list[dict]) -> list[dict]:
+def _decorate_quote_items(items: list[dict], profit_rate: object = 0) -> list[dict]:
     for item in items:
         inputs = item.get("inputs") or {}
         measure = part_measure_text(item["part_code"], inputs)
@@ -586,8 +586,19 @@ def _decorate_quote_items(items: list[dict]) -> list[dict]:
         options = _quote_item_options(inputs)
         sac = str(inputs.get("sac_kalinlik_mm") or "").strip()
 
+        result = engine.calculate(item["part_code"], inputs)
+        sale = engine.calculate_sale(result, profit_rate, item["quantity"])
+        item["result"] = result
+        item["line_total"] = sale["line_total"]
+        item["unit_cost"] = sale["unit_cost"]
+        item["unit_price"] = sale["unit_price"]
+        item["cut_area_m2"] = result["kesilen_m2"]
+        item["weight_kg"] = result["kg"]
+
         display_name = item["part_name"] + (f" ({')-('.join(title_options)})" if title_options else "")
-        detail_parts = [f"{item['quantity']} adet"]
+        unit_data = sales_fields(item["part_code"], inputs, result, item["quantity"], sale["line_total"])
+        item.update(unit_data)
+        detail_parts = [f"{unit_data['sales_quantity_text']} {unit_data['sales_unit_label']}"]
         if sac:
             detail_parts.append(f"Sac: {sac} mm")
         if measure:
@@ -695,6 +706,7 @@ def _cart_payload(cart_token: str) -> dict:
             "result": result,
             "sale": sale,
             "line_total": line_total,
+            **sales_fields(row["part_code"], inputs, result, row["quantity"], line_total),
         })
     return {"items": items, "total": round(total, 2)}
 
@@ -709,38 +721,3 @@ def _serialize_material_option(row) -> dict:
         "average_unit_cost": float(row["average_unit_cost"] or 0),
         "is_available": bool(row["is_available"]),
     }
-
-
-async def _notify_new_quote(quote_id: int, customer_name: str, items: list[dict]) -> None:
-    phones = _notify_phones()
-    if not phones:
-        return
-
-    base_url = settings.public_base_url.rstrip("/") or "http://127.0.0.1:8010"
-    total = sum(float(item["line_total"]) for item in items)
-    item_lines = "\n".join(f"- {item['part_name']} x {item['quantity']}" for item in items[:6])
-    if len(items) > 6:
-        item_lines += f"\n- +{len(items) - 6} kalem"
-    message = (
-        f"Yeni teklif talebi geldi.\n\n"
-        f"Teklif No: #{quote_id}\n"
-        f"Musteri: {(customer_name or 'Genel Musteri').strip() or 'Genel Musteri'}\n"
-        f"Toplam: {total:.2f} TL\n\n"
-        f"{item_lines}\n\n"
-        f"Incele: {base_url}/admin/quotes"
-    )
-
-    for phone in phones:
-        try:
-            await whatsapp_client.send_text(phone, message)
-            logger.info("Yeni teklif bildirimi gonderildi: %s", phone)
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.text[:1000] if exc.response is not None else str(exc)
-            logger.warning("Yeni teklif bildirimi gonderilemedi: %s -> %s", phone, detail)
-        except (ValueError, httpx.HTTPError) as exc:
-            logger.warning("Yeni teklif bildirimi gonderilemedi: %s -> %s", phone, exc)
-
-
-def _notify_phones() -> list[str]:
-    raw = settings.whatsapp_notify_phones or ""
-    return [phone.strip().replace("+", "") for phone in raw.replace(";", ",").split(",") if phone.strip()]

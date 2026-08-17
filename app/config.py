@@ -26,19 +26,18 @@ ASSET_VERSION = _static_asset_version()
 
 
 class Settings(BaseSettings):
-    app_name: str = "Whatsapp Havalandirma Bot"
+    app_name: str = "HVAC Pro Suite"
     app_env: str = "development"
     database_url: str = "sqlite:///data/whatsapp_bot.sqlite3"
     public_base_url: str = ""
     admin_username: str = "admin"
     admin_password: str = ""
+    mobile_activation_code: str = ""
+    mobile_tenant_id: str = "default"
 
-    whatsapp_verify_token: str = ""
-    whatsapp_access_token: str = ""
-    whatsapp_phone_number_id: str = ""
-    whatsapp_business_account_id: str = ""
-    whatsapp_app_secret: str = ""
-    whatsapp_notify_phones: str = ""
+    company_name: str = "HVAC Pro Suite"
+    company_address: str = ""
+    company_phone: str = ""
 
     parasut_client_id: str = ""
     parasut_client_secret: str = ""

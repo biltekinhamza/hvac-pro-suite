@@ -9,6 +9,7 @@
     </div>
     <div class="admin-actions">
       <a class="nav-link" href="/admin/quotes">Teklifler</a>
+      <a class="nav-link active" href="/admin/carts">Bekleyen sepetler</a>
       <a class="nav-link" href="/admin/materials">Malzemeler</a>
       <a class="nav-link" href="/">Sipariş ekranı</a>
     </div>
@@ -24,5 +25,31 @@
     <div id="pending-carts" class="pending-carts"><p class="muted">Yükleniyor...</p></div>
   </section>
 </main>
+
+<div id="customer-picker-modal" class="quote-detail-modal" hidden>
+  <div class="quote-detail-backdrop" data-close="1"></div>
+  <section class="quote-detail-window customer-picker-window" role="dialog" aria-modal="true" aria-labelledby="customer-picker-title">
+    <div class="quote-detail-modal-head">
+      <div>
+        <span class="customer-picker-kicker">PARAŞÜT CARİLERİ</span>
+        <h2 id="customer-picker-title">Teklif Müşterisi Seçin</h2>
+      </div>
+      <button id="customer-picker-close" type="button" aria-label="Kapat">&times;</button>
+    </div>
+    <form id="customer-picker-form" class="customer-picker-body">
+      <label>
+        Müşteri / Firma Adı
+        <input id="customer-picker-input" name="customer_name" type="text" list="parasut-customer-options" autocomplete="off" placeholder="Paraşüt müşterilerinde ara" required>
+        <datalist id="parasut-customer-options"></datalist>
+      </label>
+      <p id="parasut-contact-status" class="muted" aria-live="polite">Paraşüt müşteri listesi yükleniyor...</p>
+      <p class="customer-picker-help">Listeden mevcut bir cari seçebilir veya yeni bir firma adı yazabilirsiniz.</p>
+      <div class="customer-picker-actions">
+        <button id="customer-picker-cancel" type="button">Vazgeç</button>
+        <button id="customer-picker-submit" type="submit">Teklif Oluştur</button>
+      </div>
+    </form>
+  </section>
+</div>
 <script src="/static/admin_carts.js?v={{ asset_version }}"></script>
 {% endblock %}

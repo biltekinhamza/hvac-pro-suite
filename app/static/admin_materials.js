@@ -1,6 +1,41 @@
 var materialItems = [];
 var materialFilter = '';
 
+async function loadLaborRates() {
+  var res = await fetch('/api/admin/labor-rates');
+  if (!res.ok) throw new Error('labor rates load failed');
+  var data = await res.json();
+  var fitting = document.querySelector('#fitting-labor-rate');
+  var squareDuct = document.querySelector('#square-duct-labor-rate');
+  var spiro = document.querySelector('#spiro-labor-rate');
+  if (fitting) fitting.value = data.fitting;
+  if (squareDuct) squareDuct.value = data.square_duct;
+  if (spiro) spiro.value = data.spiro;
+}
+
+async function saveLaborRates() {
+  var fitting = Number(document.querySelector('#fitting-labor-rate').value);
+  var squareDuct = Number(document.querySelector('#square-duct-labor-rate').value);
+  var spiro = Number(document.querySelector('#spiro-labor-rate').value);
+  var btn = document.querySelector('#btn-save-labor-rates');
+  var message = document.querySelector('#labor-rates-message');
+  if ([fitting, squareDuct, spiro].some(function(rate) { return !Number.isFinite(rate) || rate < 0; })) {
+    if (message) message.innerHTML = '<p class="error">Oranlar sıfır veya pozitif olmalıdır.</p>';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
+  try {
+    var res = await fetch('/api/admin/labor-rates', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({fitting: fitting, square_duct: squareDuct, spiro: spiro})
+    });
+    if (!res.ok) throw Error();
+    if (message) message.innerHTML = '<p class="success">İşçilik oranları kaydedildi. Yeni hesaplamalarda uygulanır.</p>';
+  } catch(e) {
+    if (message) message.innerHTML = '<p class="error">İşçilik oranları kaydedilemedi.</p>';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Kaydet'; }
+}
+
 async function loadMaterials() {
   var res = await fetch('/api/admin/materials');
   if (!res.ok) throw new Error('materials load failed');
@@ -112,6 +147,8 @@ document.querySelector('#material-search')?.addEventListener('input', function(e
   renderMaterials();
 });
 
+document.querySelector('#btn-save-labor-rates')?.addEventListener('click', saveLaborRates);
+
 // --- Add material ---
 document.querySelector('#btn-add-material')?.addEventListener('click', async function() {
   var nameEl = document.querySelector('#add-material-name');
@@ -152,7 +189,7 @@ document.querySelector('#btn-add-material')?.addEventListener('click', async fun
   }
 });
 
-loadMaterials().catch(function(err) {
+Promise.all([loadMaterials(), loadLaborRates()]).catch(function(err) {
   console.error(err);
   var el = document.querySelector('#materials-body');
   if (el) el.innerHTML = '<tr><td colspan="8">Malzemeler yuklenemedi.</td></tr>';

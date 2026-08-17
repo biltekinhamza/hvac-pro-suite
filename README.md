@@ -1,6 +1,6 @@
-# Whatsapp Havalandirma Bot
+# HVAC Pro Suite
 
-FastAPI tabanli web siparis, WhatsApp bot ve Parasut teklif entegrasyonu projesi.
+FastAPI tabanli web siparis ve Parasut teklif entegrasyonu projesi.
 
 ## Calistirma
 
@@ -27,18 +27,11 @@ Gizli bilgiler `.env` dosyasinda tutulmalidir. `.env.example` sadece sablondur.
 
 ```bash
 copy .env.example .env
-docker compose up --build
+docker compose up --build -d
 ```
 
 Adres: http://127.0.0.1:8010
 
-Webhook endpointleri:
-
-- GET/POST `/webhook`
-- GET/POST `/webhook/whatsapp`
-
-Meta Callback URL icin onerilen adres:
-
-```text
-https://PUBLIC_ADRES/webhook/whatsapp
-```
+Compose proje adi `hvac_pro_suite` olarak sabitlenmistir; komutlari bu
+klasorden calistirin. Cloudflare quick tunnel her yeniden olusturuldugunda
+yeni bir adres uretebilir ve kalici yayin icin uygun degildir.

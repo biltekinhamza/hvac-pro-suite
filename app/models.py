@@ -47,6 +47,12 @@ class MaterialCostUpdateRequest(BaseModel):
     average_unit_cost: float = Field(ge=0)
 
 
+class LaborRatesUpdateRequest(BaseModel):
+    fitting: float = Field(ge=0)
+    square_duct: float = Field(ge=0)
+    spiro: float = Field(ge=0)
+
+
 class AddMaterialOptionRequest(BaseModel):
     material_name: str
     option_name: str

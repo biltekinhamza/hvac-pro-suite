@@ -9,12 +9,55 @@ import unittest
 
 import app.repository as repository_module
 from app.accounting.parasut_service import ParasutService
+from app.config import Settings
 from app.database import Database
+from app.quote_pdf import build_quote_pdf
 from app.repository import Repository
+from app.utils import q2
 from app.ventilation.engine import CostEngine
 from app.ventilation.formulas import calculate_geometry
 from app.ventilation.part_config import list_parts
 from app.ventilation.part_description import part_measure_text
+from app.ventilation.sales_units import NO_QUANTITY_PARTS, sales_fields
+
+
+class QuotePdfTests(unittest.TestCase):
+    def test_quote_pdf_is_generated_from_customer_prices(self) -> None:
+        payload = {
+            "quote": {
+                "id": 42,
+                "customer_name": "Örnek Müşteri",
+                "profit_rate": 35,
+                "shipping_amount": 250,
+                "total_amount": 1450,
+                "created_at": "2026-08-03 10:30:00",
+            },
+            "items": [{
+                "part_name": "Kare Dirsek",
+                "display_name": "Kare Dirsek (Boyalı)",
+                "detail_parts": ["2 adet", "Sac: 0.60 mm", "Ölçüler: 500x400mm"],
+                "quantity": 2,
+                "unit_cost": 400,
+                "unit_price": 600,
+                "line_total": 1200,
+            }],
+        }
+
+        pdf = build_quote_pdf(payload, Settings(_env_file=None, company_name="HVAC Pro Suite", default_vat_rate=20))
+
+        self.assertTrue(pdf.startswith(b"%PDF-"))
+        self.assertGreater(len(pdf), 1000)
+
+    def test_sales_units_change_without_changing_line_total(self) -> None:
+        spiro = sales_fields("spiro_boru", {"uzunluk": 2.5}, {"alan_m2": 0.8}, 2, 500)
+        duct = sales_fields("dikdortgen_kanal", {"uzunluk": 1.2}, {"alan_m2": 2.64}, 17, 11220)
+        fitting = sales_fields("kare_dirsek", {}, {"alan_m2": 1}, 3, 300)
+
+        self.assertEqual((spiro["sales_quantity"], spiro["sales_unit"], spiro["sales_unit_price"]), (5.0, "m", 100.0))
+        self.assertNotIn("spiro_boru", NO_QUANTITY_PARTS)
+        self.assertEqual((duct["sales_quantity"], duct["sales_unit"], duct["sales_unit_price"]), (44.88, "m2", 250.0))
+        self.assertNotIn("dikdortgen_kanal", NO_QUANTITY_PARTS)
+        self.assertEqual((fitting["sales_quantity"], fitting["sales_unit"], fitting["sales_unit_price"]), (3.0, "adet", 100.0))
 
 
 class FormulaTests(unittest.TestCase):
@@ -56,18 +99,32 @@ class FormulaTests(unittest.TestCase):
                 self.assertEqual(len(marker["segments"]), 2)
                 self.assertTrue(marker["path"].startswith("M "))
 
-    def test_round_elbow_r_is_the_centerline_radius(self) -> None:
-        parts = {part["code"]: part for part in list_parts()}
-        radius_field = next(field for field in parts["yuvarlak_dirsek"]["fields"] if field["name"] == "r")
+    def test_single_arm_pants_mouth_markers_share_their_real_corners(self) -> None:
+        part = next(item for item in list_parts() if item["code"] == "kare_pantolon_2")
+        markers = {marker["field"]: marker for marker in part["dimension_markers"]}
 
-        self.assertEqual(radius_field["label"], "Merkez Hat Radyusu R (cm)")
+        self.assertEqual(markers["taban_en"]["line"][:2], markers["ana_yukseklik"]["line"][2:])
+        self.assertEqual(markers["taban_en"]["line"][2:], markers["taban_boy"]["line"][:2])
+        self.assertEqual(markers["ana_cikis_en"]["line"][:2], markers["ana_yukseklik"]["line"][:2])
+        self.assertEqual(markers["ana_cikis_en"]["line"][2:], markers["ana_cikis_boy"]["line"][:2])
+
+    def test_round_elbow_measure_includes_angle(self) -> None:
         self.assertEqual(
-            parts["yuvarlak_dirsek"]["computed_fields"],
-            [{"field": "r", "source": "cap", "factor": 0.15, "decimals": 2}],
+            part_measure_text("yuvarlak_dirsek", {"cap": 500, "aci": 90}),
+            "Ø500mm 90°",
         )
+
+    def test_round_elbow_uses_automatic_centerline_radius(self) -> None:
+        parts = {part["code"]: part for part in list_parts()}
+
+        self.assertEqual(
+            [field["name"] for field in parts["yuvarlak_dirsek"]["fields"]],
+            ["cap", "aci"],
+        )
+        self.assertEqual(parts["yuvarlak_dirsek"]["computed_fields"], [])
         result = calculate_geometry(
             "yuvarlak_dirsek",
-            {"cap": 500, "aci": 90, "r": 10, "sac_kalinlik_mm": 0.60},
+            {"cap": 500, "aci": 90, "sac_kalinlik_mm": 0.60},
         )
         self.assertAlmostEqual(result["alan_m2"], 1.851, places=3)
         self.assertEqual(result["detay"]["merkez_hat_radyusu_cm"], 75.0)
@@ -155,7 +212,27 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(result["detay"]["govde_cm2"], 25600.0)
         self.assertAlmostEqual(result["detay"]["sol_dirsek_cm2"], 14137.17, places=2)
         self.assertAlmostEqual(result["detay"]["sag_dirsek_cm2"], 14137.17, places=2)
-        self.assertEqual(result["detay"]["flans_cm2"], 2040.0)
+        self.assertNotIn("flans_cm2", result["detay"])
+
+    def test_single_arm_square_pants_derives_radius_and_branch_exit_length(self) -> None:
+        result = calculate_geometry(
+            "kare_pantolon_2",
+            {
+                "taban_en": 100,
+                "taban_boy": 50,
+                "ana_cikis_en": 80,
+                "ana_cikis_boy": 40,
+                "ana_yukseklik": 80,
+                "kol_en": 40,
+                "kol_boy": 30,
+                "sac_kalinlik_mm": 0.60,
+            },
+        )
+
+        self.assertEqual(result["detay"]["kol_donus_radyusu_cm"], 30.0)
+        self.assertEqual(result["detay"]["yan_kol_cikis_boyu_cm"], 50.0)
+        self.assertEqual(result["detay"]["ana_cikis_en_cm"], 80.0)
+        self.assertEqual(result["detay"]["ana_cikis_boy_cm"], 40.0)
 
     def test_round_tee_derives_branch_length_from_main_length_and_branch_diameter(self) -> None:
         result = calculate_geometry(
@@ -171,19 +248,22 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(result["detay"]["kol_boyu_cm"], 22.0)
         self.assertAlmostEqual(result["detay"]["kol_cm2"], 1935.22, places=2)
 
-    def test_rectangular_duct_adds_two_flanged_mouths_for_every_1_2_meter_piece(self) -> None:
+    def test_rectangular_duct_excludes_ready_flange_from_sheet_area(self) -> None:
         result = calculate_geometry(
             "dikdortgen_kanal",
             {
-                "agiz_en": 50,
+                "agiz_en": 30,
                 "agiz_boy": 30,
-                "uzunluk": 2.4,
+                "uzunluk": 1.2,
                 "sac_kalinlik_mm": 0.60,
             },
         )
 
-        self.assertEqual(result["detay"]["parca_adedi"], 2)
-        self.assertEqual(result["detay"]["flans_m2"], 0.192)
+        self.assertEqual(result["detay"]["parca_adedi"], 1)
+        self.assertEqual(result["detay"]["acilim_m2"], 1.44)
+        self.assertEqual(result["detay"]["kenet_m2"], 0.036)
+        self.assertNotIn("flans_m2", result["detay"])
+        self.assertEqual(result["kesilen_m2"], 1.476)
 
     def test_round_damper_calculates_body_and_multiblade_sheet_weight(self) -> None:
         result = calculate_geometry(
@@ -274,15 +354,23 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(result["detay"]["katalog_araligi_mm"], "200-225")
 
 
-class FixedRoundCostTests(unittest.TestCase):
+class RoundMinimumMaterialCostTests(unittest.TestCase):
     class FakeRepository:
-        def get_round_part_price(self, part_code: str, cap_mm: int) -> float | None:
-            return 100.0 if (part_code, cap_mm) == ("spiro_boru", 100) else None
+        labor_rates = {"fitting": 0, "square_duct": 0, "spiro": 0}
+
+        def get_labor_rates(self) -> dict[str, float]:
+            return self.labor_rates
 
         def find_square_sheet_option(self, thickness: object):
             return {"average_unit_cost": 50}
 
-    def test_actual_cost_and_fixed_sale_price_are_calculated_separately(self) -> None:
+        def find_option_by_name_and_option(self, name: str, option: str):
+            return None
+
+        def find_first_option_by_name(self, name: str):
+            return None
+
+    def test_round_part_below_one_m2_is_priced_as_one_m2(self) -> None:
         engine = CostEngine(self.FakeRepository())
         result = engine.calculate(
             "spiro_boru",
@@ -290,11 +378,116 @@ class FixedRoundCostTests(unittest.TestCase):
         )
         sale = engine.calculate_sale(result, 0, 1)
 
-        self.assertEqual(result["sac_maliyeti"], Decimal("156.00"))
-        self.assertEqual(result["iscilik_maliyeti"], Decimal("15.60"))
-        self.assertEqual(result["toplam_maliyet"], Decimal("171.60"))
-        self.assertEqual(result["sabit_satis_fiyati"], Decimal("200.00"))
-        self.assertEqual(sale["unit_price"], Decimal("200.00"))
+        self.assertEqual(result["kesilen_m2"], 0.661)
+        self.assertEqual(result["kg"], 3.12)
+        self.assertEqual(result["fiyatlandirilan_sac_m2"], Decimal("1"))
+        self.assertEqual(result["sac_maliyeti"], Decimal("235.50"))
+        self.assertEqual(result["iscilik_maliyeti"], Decimal("0.00"))
+        self.assertEqual(result["toplam_maliyet"], Decimal("235.50"))
+        self.assertEqual(sale["unit_price"], Decimal("235.50"))
+
+    def test_square_part_below_one_m2_is_priced_as_one_m2(self) -> None:
+        result = CostEngine(self.FakeRepository()).calculate(
+            "kare_saplama",
+            {"agiz_en": 20, "agiz_boy": 20, "sac_kalinlik_mm": 0.60},
+        )
+
+        self.assertLess(result["kesilen_m2"], 1)
+        self.assertEqual(result["fiyatlandirilan_sac_m2"], Decimal("1"))
+        self.assertEqual(result["sac_maliyeti"], Decimal("235.50"))
+
+    def test_rectangular_duct_bills_uniform_m2_price(self) -> None:
+        engine = CostEngine(self.FakeRepository())
+        small = engine.calculate(
+            "dikdortgen_kanal",
+            {"agiz_en": 25, "agiz_boy": 25, "uzunluk": 1, "sac_kalinlik_mm": 0.60},
+        )
+        large = engine.calculate(
+            "dikdortgen_kanal",
+            {"agiz_en": 30, "agiz_boy": 30, "uzunluk": 1.2, "sac_kalinlik_mm": 0.60},
+        )
+        sale_small = engine.calculate_sale(small, 40, 10)
+        sale_large = engine.calculate_sale(large, 40, 20)
+
+        self.assertEqual(sale_small["unit_price"], sale_large["unit_price"])
+        self.assertEqual(
+            sale_large["line_total"],
+            q2(sale_large["unit_price"] * large["billable_m2"] * Decimal(20)),
+        )
+        self.assertEqual(sale_small["unit_price"], q2(sale_small["unit_cost"] * Decimal("1.40")))
+
+    def test_rectangular_duct_below_one_m2_is_billed_as_one_m2(self) -> None:
+        engine = CostEngine(self.FakeRepository())
+        result = engine.calculate(
+            "dikdortgen_kanal",
+            {"agiz_en": 15, "agiz_boy": 15, "uzunluk": 1, "sac_kalinlik_mm": 0.60},
+        )
+
+        self.assertLess(result["alan_m2"], 1)
+        self.assertEqual(result["billable_m2"], Decimal("1"))
+
+    def test_rectangular_duct_minimum_m2_applies_to_the_total_line(self) -> None:
+        engine = CostEngine(self.FakeRepository())
+        result = engine.calculate(
+            "dikdortgen_kanal",
+            {"agiz_en": 20, "agiz_boy": 15, "uzunluk": 1.2, "sac_kalinlik_mm": 0.60},
+        )
+        sale = engine.calculate_sale(result, 30, 10)
+
+        self.assertEqual(result["alan_m2"], 0.84)
+        self.assertEqual(
+            sale["line_total"],
+            q2(sale["unit_price"] * Decimal("8.4")),
+        )
+
+    def test_spiro_labor_rate_is_taken_from_admin_setting(self) -> None:
+        repository = self.FakeRepository()
+        repository.labor_rates = {"fitting": 0, "square_duct": 0, "spiro": 15}
+        result = CostEngine(repository).calculate(
+            "spiro_boru",
+            {"cap": 100, "uzunluk": 2, "sac_kalinlik_mm": 0.60},
+        )
+
+        self.assertEqual(result["iscilik_maliyeti"], Decimal("35.33"))
+        self.assertEqual(result["toplam_maliyet"], Decimal("270.83"))
+
+    def test_labor_rates_apply_to_their_assigned_part_groups(self) -> None:
+        repository = self.FakeRepository()
+        repository.labor_rates = {"fitting": 10, "square_duct": 20, "spiro": 30}
+        engine = CostEngine(repository)
+
+        fitting = engine.calculate("yuvarlak_dirsek", {"cap": 500, "aci": 90, "sac_kalinlik_mm": 0.60})
+        square_duct = engine.calculate(
+            "dikdortgen_kanal",
+            {"agiz_en": 50, "agiz_boy": 30, "uzunluk": 1, "sac_kalinlik_mm": 0.60},
+        )
+        spiro = engine.calculate("spiro_boru", {"cap": 100, "uzunluk": 2, "sac_kalinlik_mm": 0.60})
+
+        self.assertEqual(fitting["iscilik_maliyeti"], (fitting["sac_maliyeti"] + fitting["diger_malzeme_maliyeti"]) * Decimal("0.10"))
+        self.assertEqual(square_duct["iscilik_maliyeti"], (square_duct["sac_maliyeti"] + square_duct["diger_malzeme_maliyeti"]) * Decimal("0.20"))
+        self.assertEqual(spiro["iscilik_maliyeti"], (spiro["sac_maliyeti"] + spiro["diger_malzeme_maliyeti"]) * Decimal("0.30"))
+
+    def test_round_parts_never_add_flange_cost(self) -> None:
+        class FlangeRepository(self.FakeRepository):
+            def find_first_option_by_name(self, name: str):
+                return {"id": 1, "average_unit_cost": 25} if name == "FLANS" else None
+
+            def get_material_option(self, option_id: int):
+                return {"id": option_id, "average_unit_cost": 25}
+
+        result = CostEngine(FlangeRepository()).calculate(
+            "yuvarlak_reduksiyon",
+            {
+                "buyuk_cap": 500,
+                "kucuk_cap": 300,
+                "boy": 40,
+                "sac_kalinlik_mm": 0.60,
+                "flans_ekle": True,
+                "flans_ozellik_id": 1,
+            },
+        )
+
+        self.assertEqual(result["diger_malzeme_maliyeti"], Decimal("0.00"))
 
 
 class QuoteTotalTests(unittest.TestCase):
@@ -312,6 +505,7 @@ class QuoteTotalTests(unittest.TestCase):
 
     def test_shipping_is_in_total_but_excluded_from_profit(self) -> None:
         quote_id = self.repository.create_quote(
+            "test-cart-token",
             "Test",
             30,
             [{
@@ -371,6 +565,8 @@ class ParasutShippingTests(unittest.TestCase):
                 "part_name": "Spiro Boru",
                 "quantity": 2,
                 "unit_price": 100,
+                "sales_quantity": 5.126,
+                "sales_unit_price": 40.567,
                 "inputs": {},
             }],
         ))
@@ -378,12 +574,37 @@ class ParasutShippingTests(unittest.TestCase):
         self.assertEqual(offer_id, "offer-1")
         details = client.offer_payload["data"]["relationships"]["details"]["data"]
         self.assertEqual(len(details), 2)
+        self.assertEqual(details[0]["attributes"]["quantity"], 5.13)
+        self.assertEqual(details[0]["attributes"]["unit_price"], 40.57)
         self.assertEqual(details[1]["attributes"]["description"], "Nakliye")
         self.assertEqual(details[1]["attributes"]["unit_price"], 75.0)
         self.assertEqual(
             details[1]["relationships"]["product"]["data"]["id"],
             "product-NAKLIYE",
         )
+
+    def test_customer_search_returns_parasut_contacts(self) -> None:
+        class SearchClient:
+            async def request(self, method: str, path: str, **kwargs):
+                self.params = kwargs["params"]
+                return {
+                    "data": [{
+                        "id": "42",
+                        "attributes": {
+                            "name": "Örnek Makine Ltd.",
+                            "phone": "05320000000",
+                            "tax_number": "1234567890",
+                        },
+                    }],
+                }
+
+        client = SearchClient()
+        contacts = asyncio.run(ParasutService(client).search_contacts("Örnek", limit=10))
+
+        self.assertEqual(contacts[0]["name"], "Örnek Makine Ltd.")
+        self.assertEqual(contacts[0]["tax_number"], "1234567890")
+        self.assertEqual(client.params["filter[name]"], "Örnek")
+        self.assertEqual(client.params["filter[account_type]"], "customer")
 
 
 if __name__ == "__main__":

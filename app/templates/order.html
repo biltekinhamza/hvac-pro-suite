@@ -3,10 +3,10 @@
 <main class="page-shell">
   <section class="hero">
     <div>
-      <p class="eyebrow">Tavsan Makina</p>
+      <p class="eyebrow">HVAC Pro Suite</p>
       <h1>Havalandırma Sipariş Talebi</h1>
       <p>Parça tipini seçin, ölçüleri girin ve kalemleri sepete ekleyin. Teklif isteğiniz ekip tarafından değerlendirilecektir.</p>
-      {% if session_token %}<p class="session-note">WhatsApp talebinizle bağlantılı form.</p>{% endif %}
+      <p id="connection-status" class="connection-status" role="status" aria-live="polite"></p>
     </div>
   </section>
 
@@ -24,6 +24,14 @@
 
   </section>
 </main>
+
+<nav class="mobile-cart-bar" aria-label="Sipariş özeti">
+  <div>
+    <small>Aktif sipariş</small>
+    <strong><span id="mobile-cart-count">0</span> kalem</strong>
+  </div>
+  <button id="mobile-cart-button" type="button" aria-haspopup="dialog" aria-controls="cart-modal">Sepeti Aç</button>
+</nav>
 
 <div id="cart-modal" class="modal-overlay cart-modal" role="dialog" aria-modal="true" aria-labelledby="cart-modal-title" aria-hidden="true">
   <section class="cart-dialog">
@@ -107,6 +115,24 @@
       </section>
     </div>
   </div>
+</div>
+
+<div id="customer-modal" class="modal-overlay customer-modal" role="dialog" aria-modal="true" aria-labelledby="customer-modal-title" aria-hidden="true">
+  <section class="customer-dialog">
+    <header>
+      <div>
+        <span class="modal-step">SON ADIM</span>
+        <h2 id="customer-modal-title">Teklif bilgileri</h2>
+      </div>
+      <button type="button" class="customer-close" aria-label="Kapat">&times;</button>
+    </header>
+    <form id="customer-form">
+      <label for="customer-name">Müşteri / Firma Adı</label>
+      <input id="customer-name" name="customer_name" type="text" maxlength="160" autocomplete="organization" required>
+      <p>Teklif talebiniz bu adla kaydedilecektir.</p>
+      <button type="submit" class="btn-primary">Teklif Talebi Oluştur</button>
+    </form>
+  </section>
 </div>
 
 <div id="toast" class="toast" hidden></div>
