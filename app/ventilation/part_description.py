@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.ventilation.part_config import PARTS
@@ -59,6 +60,13 @@ def part_measure_text(part_code: str, inputs: dict[str, Any]) -> str:
         if value:
             values.append(f"{label.split('(')[0].strip()}:{value}")
     return " ".join(values)
+
+
+def parasut_measure_text(part_code: str, inputs: dict[str, Any]) -> str:
+    text = part_measure_text(part_code, inputs)
+    if part_code == "spiro_boru":
+        return re.sub(r"\s*L:[^\s]+m", "", text)
+    return text
 
 
 def part_description(part_code: str, part_name: str, inputs: dict[str, Any]) -> str:

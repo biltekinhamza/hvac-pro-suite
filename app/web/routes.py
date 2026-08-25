@@ -18,7 +18,7 @@ from app.utils import loads_json
 from app.ventilation.engine import CostEngine
 from app.ventilation.formulas import calculate_geometry
 from app.ventilation.part_config import PARTS
-from app.ventilation.part_description import part_measure_text
+from app.ventilation.part_description import part_measure_text, parasut_measure_text
 from app.ventilation.sales_units import NO_QUANTITY_PARTS, sales_fields
 from app.ventilation.service import ventilation_service
 
@@ -610,7 +610,13 @@ def _decorate_quote_items(items: list[dict], profit_rate: object = 0) -> list[di
         item["title_options"] = title_options
         item["detail_parts"] = detail_parts
         item["detail_text"] = " | ".join([display_name, *detail_parts])
-        item["parasut_description"] = f"{display_name} | {' | '.join(detail_parts)}"
+        parasut_parts = list(detail_parts)
+        parasut_measure = parasut_measure_text(item["part_code"], inputs)
+        if parasut_measure != measure:
+            parasut_parts = [part for part in parasut_parts if part != f"Ölçüler: {measure}"]
+            if parasut_measure:
+                parasut_parts.append(f"Ölçüler: {parasut_measure}")
+        item["parasut_description"] = f"{display_name} | {' | '.join(parasut_parts)}"
     return items
 
 

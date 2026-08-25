@@ -12,7 +12,7 @@ import logging
 from app.accounting.parasut_client import ParasutClient, parasut_client
 from app.config import settings
 from app.ventilation.part_config import PARTS
-from app.ventilation.part_description import part_measure_text
+from app.ventilation.part_description import parasut_measure_text
 
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ class ParasutService:
         details = []
         for item in items:
             product_id = await self._find_or_create_part_product(item["part_code"])
-            description = item.get("parasut_description") or part_measure_text(item["part_code"], item.get("inputs", {}))
+            description = item.get("parasut_description") or parasut_measure_text(item["part_code"], item.get("inputs", {}))
             details.append({
                 "type": "sales_offer_details",
                 "attributes": {
