@@ -6,11 +6,6 @@ services:
     container_name: hvac_pro_suite_app
     ports:
       - "8010:8010"
-    env_file:
-      - .env
-    volumes:
-      - ./data:/app/data
-      - ./android-client/app/build/outputs/apk/debug/app-debug.apk:/app/downloads/hvac-mobile.apk:ro
     restart: unless-stopped
 
   tunnel:
